@@ -2942,14 +2942,8 @@ const OC_COL_DEFS = {
 
 const OC_DEFAULT_COLS = ['oi','vol','ltp','bidAsk','iv','delta'];
 
-function getOCSelectedCols(){
-  try{
-    const s=localStorage.getItem('oc_selected_cols');
-    if(s){ const arr=JSON.parse(s); if(Array.isArray(arr)&&arr.length) return arr.filter(k=>OC_COL_DEFS[k]); }
-  }catch{}
-  return OC_DEFAULT_COLS.slice();
-}
-function saveOCSelectedCols(arr){ localStorage.setItem('oc_selected_cols', JSON.stringify(arr)); renderActiveCols(); }
+/* AUDIT CLEANUP (2026-09-10): shadowed earlier duplicate of getOCSelectedCols removed — the later definition in this file always won; see AUDIT.md §5 C-4 */
+/* AUDIT CLEANUP (2026-09-10): shadowed earlier duplicate of saveOCSelectedCols removed — the later definition in this file always won; see AUDIT.md §5 C-4 */
 
 
 
@@ -2980,7 +2974,7 @@ function ocIsMobile(){return window.matchMedia?.('(max-width: 768px)').matches||
 // Override update functions to use dynamic cols
 
 
-function ocUpdateRow(info,mf){ ocUpdateRowDynamic(info,mf); }
+/* AUDIT CLEANUP (2026-09-10): shadowed earlier duplicate of ocUpdateRow removed — the later definition in this file always won; see AUDIT.md §5 C-4 */
 
 
 // Expose
