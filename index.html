@@ -1373,7 +1373,7 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
       <div class="pro-mkt pro-mkt-vix" id="proVixMarket" data-key="NSE_INDEX|India VIX"><span>VIX</span><b id="pmVix">—</b><i id="pmVixC">—</i></div>
       <div class="pro-mkt pro-mkt-commodity" id="proCrudeMarket" data-key="MCX_FO|565899" title="Crude Oil front-month futures"><span>CRUDE FUT <em class="pro-card-expiry" id="pmCrudeExp"></em></span><b id="pmCrude">—</b><i id="pmCrudeC">—</i></div>
     </div>
-    <div class="hr"><div class="hst off ws-count" id="wCnt" title="Active WebSockets — click for details"><span class="sdot"></span><span id="wCntT">0 WS</span></div><div class="hst off" id="wS"><span class="sdot"></span><span id="wT">Off</span></div><button type="button" class="hb" onclick="wsC()">Feed</button><button type="button" class="hb" id="proInspectorBtn" onclick="proToggleInspector()">Inspector</button><button type="button" class="hb" id="panicBtn" onclick="panicExitAll()" title="Cancel MY open orders, then square off MY open positions (tag: uptrade-web)">🛑 Panic</button><button type="button" class="hb dg" onclick="logout()">Logout</button></div>
+    <div class="hr"><div class="hst off" id="mStat" title="Exchange status"><span class="sdot"></span><span id="mStatT">Mkt —</span></div><div class="hst off ws-count" id="wCnt" title="Active WebSockets — click for details"><span class="sdot"></span><span id="wCntT">0 WS</span></div><div class="hst off" id="wS"><span class="sdot"></span><span id="wT">Off</span></div><button type="button" class="hb" onclick="wsC()">Feed</button><button type="button" class="hb" id="proInspectorBtn" onclick="proToggleInspector()">Inspector</button><button type="button" class="hb" id="panicBtn" onclick="panicExitAll()" title="Cancel MY open orders, then square off MY open positions (tag: uptrade-web)">🛑 Panic</button><button type="button" class="hb dg" onclick="logout()">Logout</button></div>
 </header>
 <div class="pgc">
 
@@ -1604,12 +1604,14 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
 <div class="pg compact-page" id="pg-pnl">
   <div class="page-head"><div><div class="page-title">📑 Profit &amp; Loss</div><div class="page-sub">Realised trade-wise report</div></div><div class="page-actions"><button type="button" class="icon-btn" onclick="ldPl()">↻</button></div></div>
   <section class="cd filter-bar"><div class="compact-form-grid pnl-form-grid"><div class="fgrp"><label>Segment</label><select class="fi" id="plS"><option value="EQ">Equity</option><option value="FO">F&amp;O</option></select></div><div class="fgrp"><label>Financial year</label><select class="fi" id="plY"><option value="">Loading years…</option></select></div><div class="fgrp form-action"><label>&nbsp;</label><button type="button" class="btn bp" onclick="ldPl()">Load report</button></div></div></section>
+  <section class="cd result-card" id="plChCard" style="display:none"><div class="list-toolbar"><b>Charges breakdown — selected segment &amp; FY</b><span id="plChTotal" style="font-weight:700"></span></div><div class="cb" id="plCh"><span class="muted-note">Load a report to fetch charges.</span></div></section>
   <section class="cd result-card"><div class="cb" id="plB"><div class="large-empty compact-empty"><div class="empty-icon">📑</div><b>No report loaded</b><span>Select a segment and financial year.</span></div></div></section>
 </div>
 
 <div class="pg compact-page" id="pg-prof">
   <div class="page-head"><div><div class="page-title">👤 Profile</div><div class="page-sub">Connected Upstox account</div></div></div>
   <section class="cd profile-card"><div class="cb" id="prB"><div class="ld"><div class="sp"></div></div></div></section>
+  <section class="cd" style="margin-top:12px"><div class="list-toolbar"><b>Risk controls</b><button type="button" class="btn br bs" onclick="ksOpen()">🚨 Kill switch…</button></div><div class="cb" style="padding:10px 14px"><span class="muted-note">Emergency brake: disable a trading segment (cancels its pending orders, blocks new ones). 12-hour cooling applies; regenerate your token afterwards.</span></div></section>
 </div>
 
 </div></main></div>
@@ -1663,7 +1665,7 @@ message FeedResponse{ Type type = 1; map<string, Feed> feeds = 2; int64 currentT
 const DB=[{k:'NSE_EQ|INE002A01018',s:'RELIANCE',n:'Reliance Industries',x:'NSE'},{k:'NSE_EQ|INE009A01021',s:'INFY',n:'Infosys',x:'NSE'},{k:'NSE_EQ|INE467B01029',s:'TCS',n:'Tata Consultancy',x:'NSE'},{k:'NSE_EQ|INE040A01034',s:'HDFCBANK',n:'HDFC Bank',x:'NSE'},{k:'NSE_EQ|INE090A01021',s:'ICICIBANK',n:'ICICI Bank',x:'NSE'},{k:'NSE_EQ|INE154A01025',s:'ITC',n:'ITC Ltd',x:'NSE'},{k:'NSE_EQ|INE062A01020',s:'SBIN',n:'State Bank',x:'NSE'},{k:'NSE_EQ|INE030A01027',s:'HINDUNILVR',n:'Hindustan Unilever',x:'NSE'},{k:'NSE_EQ|INE397D01024',s:'BHARTIARTL',n:'Bharti Airtel',x:'NSE'},{k:'NSE_EQ|INE075A01022',s:'WIPRO',n:'Wipro',x:'NSE'},{k:'NSE_EQ|INE237A01036',s:'KOTAKBANK',n:'Kotak Bank',x:'NSE'},{k:'NSE_EQ|INE296A01032',s:'BAJFINANCE',n:'Bajaj Finance',x:'NSE'},{k:'NSE_EQ|INE585B01010',s:'MARUTI',n:'Maruti Suzuki',x:'NSE'},{k:'NSE_EQ|INE155A01022',s:'TMPV',n:'Tata Motors Passenger Vehicles',x:'NSE'},{k:'NSE_EQ|INE1TAE01010',s:'TMCV',n:'Tata Motors Commercial Vehicles',x:'NSE'},{k:'NSE_EQ|INE238A01034',s:'AXISBANK',n:'Axis Bank',x:'NSE'},{k:'NSE_EQ|INE423A01024',s:'ADANIENT',n:'Adani Ent',x:'NSE'},{k:'NSE_EQ|INE021A01026',s:'ASIANPAINT',n:'Asian Paints',x:'NSE'},{k:'NSE_EQ|INE044A01036',s:'SUNPHARMA',n:'Sun Pharma',x:'NSE'},{k:'NSE_EQ|INE081A01020',s:'TATASTEEL',n:'Tata Steel',x:'NSE'},{k:'NSE_EQ|INE733E01010',s:'NTPC',n:'NTPC',x:'NSE'},{k:'NSE_EQ|INE213A01029',s:'ONGC',n:'ONGC',x:'NSE'},{k:'NSE_EQ|INE860A01027',s:'HCLTECH',n:'HCL Tech',x:'NSE'},{k:'NSE_EQ|INE018A01030',s:'LT',n:'Larsen & Toubro',x:'NSE'},{k:'NSE_EQ|INE089A01031',s:'DRREDDY',n:'Dr Reddys',x:'NSE'},{k:'NSE_EQ|INE019A01038',s:'JSWSTEEL',n:'JSW Steel',x:'NSE'},{k:'NSE_EQ|INE918I01026',s:'BAJAJFINSV',n:'Bajaj Finserv',x:'NSE'},{k:'NSE_EQ|INE669C01036',s:'TECHM',n:'Tech Mahindra',x:'NSE'},{k:'NSE_EQ|INE059A01026',s:'CIPLA',n:'Cipla',x:'NSE'},{k:'NSE_EQ|INE280A01028',s:'TITAN',n:'Titan',x:'NSE'},{k:'NSE_EQ|INE095A01012',s:'INDUSINDBK',n:'IndusInd Bank',x:'NSE'},{k:'NSE_EQ|INE437A01024',s:'APOLLOHOSP',n:'Apollo Hospitals',x:'NSE'},{k:'NSE_EQ|INE742F01042',s:'ADANIPORTS',n:'Adani Ports',x:'NSE'},{k:'NSE_EQ|INE481G01011',s:'ULTRACEMCO',n:'UltraTech Cement',x:'NSE'},{k:'NSE_EQ|INE038A01020',s:'HINDALCO',n:'Hindalco',x:'NSE'},{k:'NSE_EQ|INE029A01011',s:'BPCL',n:'Bharat Petroleum',x:'NSE'},{k:'NSE_EQ|INE263A01024',s:'BEL',n:'Bharat Electronics',x:'NSE'},{k:'NSE_EQ|INE752E01010',s:'POWERGRID',n:'Power Grid',x:'NSE'},{k:'NSE_EQ|INE239A01024',s:'NESTLEIND',n:'Nestle India',x:'NSE'},{k:'NSE_EQ|INE066A01021',s:'EICHERMOT',n:'Eicher Motors',x:'NSE'},{k:'NSE_EQ|INE917I01010',s:'BAJAJ-AUTO',n:'Bajaj Auto',x:'NSE'},{k:'NSE_INDEX|Nifty 50',s:'NIFTY 50',n:'Nifty 50 Index',x:'IDX'},{k:'NSE_INDEX|Nifty Bank',s:'BANKNIFTY',n:'Bank Nifty',x:'IDX'},{k:'NSE_INDEX|Nifty Fin Service',s:'FINNIFTY',n:'Nifty Financial Services',x:'IDX'},{k:'NSE_INDEX|NIFTY MID SELECT',s:'MIDCPNIFTY',n:'Nifty Midcap Select',x:'IDX'},{k:'NSE_INDEX|Nifty IT',s:'NIFTYIT',n:'Nifty IT',x:'IDX'},{k:'NSE_INDEX|Nifty Next 50',s:'NIFTYNXT50',n:'Nifty Next 50',x:'IDX'},{k:'NSE_INDEX|Nifty Midcap 50',s:'NIFTYMID50',n:'Nifty Midcap',x:'IDX'},{k:'NSE_INDEX|India VIX',s:'INDIAVIX',n:'India VIX',x:'IDX'},{k:'BSE_INDEX|SENSEX',s:'SENSEX',n:'BSE Sensex',x:'IDX'},];
 const TFS=[{id:'minutes/1',lb:'1m',unit:'minutes',iv:1},{id:'minutes/3',lb:'3m',unit:'minutes',iv:3},{id:'minutes/5',lb:'5m',unit:'minutes',iv:5},{id:'minutes/10',lb:'10m',unit:'minutes',iv:10},{id:'minutes/15',lb:'15m',unit:'minutes',iv:15},{id:'minutes/30',lb:'30m',unit:'minutes',iv:30},{id:'minutes/60',lb:'60m',unit:'minutes',iv:60},{id:'hours/1',lb:'1H',unit:'hours',iv:1},{id:'hours/2',lb:'2H',unit:'hours',iv:2},{id:'hours/4',lb:'4H',unit:'hours',iv:4},{id:'days/1',lb:'D',unit:'days',iv:1},{id:'weeks/1',lb:'W',unit:'weeks',iv:1},{id:'months/1',lb:'M',unit:'months',iv:1},];
 const API_BASE='https://api.upstox.com';const API_HFT='https://api-hft.upstox.com';
-const END={AUTH_DIALOG:'/v2/login/authorization/dialog',TOKEN:'/v2/login/authorization/token',PROFILE:{base:API_BASE,path:'/v2/user/profile'},FUNDS_V3:{base:API_BASE,path:'/v3/user/get-funds-and-margin',headers:{'Api-Version':'3.0'}},ORDER_PLACE:{base:API_HFT,path:'/v3/order/place'},ORDER_MODIFY:{base:API_HFT,path:'/v3/order/modify'},ORDER_CANCEL:{base:API_HFT,path:'/v3/order/cancel'},ORDER_BOOK:{base:API_BASE,path:'/v2/order/retrieve-all'},ORDER_HISTORY:{base:API_BASE,path:'/v2/order/history'},POSITIONS:{base:API_BASE,path:'/v2/portfolio/short-term-positions'},HOLDINGS:{base:API_BASE,path:'/v2/portfolio/long-term-holdings'},GTT_PLACE:{base:API_BASE,path:'/v3/order/gtt/place'},GTT_LIST:{base:API_BASE,path:'/v3/order/gtt'},GTT_CANCEL:{base:API_BASE,path:'/v3/order/gtt/cancel'},TRADES_DAY:{base:API_BASE,path:'/v2/order/trades/get-trades-for-day'},ORDER_CANCEL_MULTI:{base:API_BASE,path:'/v2/order/multi/cancel'},POSITIONS_EXIT:{base:API_BASE,path:'/v2/order/positions/exit'},LOGOUT:{base:API_BASE,path:'/v2/logout'},QUOTES_V3:{base:API_BASE,path:'/v3/market-quote/quotes'},LTP_V3:{base:API_BASE,path:'/v3/market-quote/ltp'},OPT_CHAIN:{base:API_BASE,path:'/v2/option/chain'},OPT_CONTRACT:{base:API_BASE,path:'/v2/option/contract'},INSTRUMENT_SEARCH:{base:API_BASE,path:'/v2/instruments/search'},HIST:'/v3/historical-candle',HIST_INTRA:'/v3/historical-candle/intraday',WS_AUTH_V3:{base:API_BASE,path:'/v3/feed/market-data-feed/authorize'},PORTFOLIO_WS_AUTH:{base:API_BASE,path:'/v2/feed/portfolio-stream-feed/authorize'},PNL_META:{base:API_BASE,path:'/v2/trade/profit-loss/metadata'},PNL_DATA:{base:API_BASE,path:'/v2/trade/profit-loss/data'},NEWS:{base:API_BASE,path:'/v2/news'},MARGIN:{base:API_BASE,path:'/v2/charges/margin'},BROKERAGE:{base:API_BASE,path:'/v2/charges/brokerage'}};
+const END={AUTH_DIALOG:'/v2/login/authorization/dialog',TOKEN:'/v2/login/authorization/token',PROFILE:{base:API_BASE,path:'/v2/user/profile'},FUNDS_V3:{base:API_BASE,path:'/v3/user/get-funds-and-margin',headers:{'Api-Version':'3.0'}},ORDER_PLACE:{base:API_HFT,path:'/v3/order/place'},ORDER_MODIFY:{base:API_HFT,path:'/v3/order/modify'},ORDER_CANCEL:{base:API_HFT,path:'/v3/order/cancel'},ORDER_BOOK:{base:API_BASE,path:'/v2/order/retrieve-all'},ORDER_HISTORY:{base:API_BASE,path:'/v2/order/history'},POSITIONS:{base:API_BASE,path:'/v2/portfolio/short-term-positions'},HOLDINGS:{base:API_BASE,path:'/v2/portfolio/long-term-holdings'},GTT_PLACE:{base:API_BASE,path:'/v3/order/gtt/place'},GTT_LIST:{base:API_BASE,path:'/v3/order/gtt'},GTT_CANCEL:{base:API_BASE,path:'/v3/order/gtt/cancel'},TRADES_DAY:{base:API_BASE,path:'/v2/order/trades/get-trades-for-day'},GTT_MODIFY:{base:API_BASE,path:'/v3/order/gtt/modify'},PNL_CHARGES:{base:API_BASE,path:'/v2/trade/profit-loss/charges'},KILL_SWITCH:{base:API_BASE,path:'/v2/user/kill-switch'},ORDER_CANCEL_MULTI:{base:API_BASE,path:'/v2/order/multi/cancel'},POSITIONS_EXIT:{base:API_BASE,path:'/v2/order/positions/exit'},LOGOUT:{base:API_BASE,path:'/v2/logout'},QUOTES_V3:{base:API_BASE,path:'/v3/market-quote/quotes'},LTP_V3:{base:API_BASE,path:'/v3/market-quote/ltp'},OPT_CHAIN:{base:API_BASE,path:'/v2/option/chain'},OPT_CONTRACT:{base:API_BASE,path:'/v2/option/contract'},INSTRUMENT_SEARCH:{base:API_BASE,path:'/v2/instruments/search'},HIST:'/v3/historical-candle',HIST_INTRA:'/v3/historical-candle/intraday',WS_AUTH_V3:{base:API_BASE,path:'/v3/feed/market-data-feed/authorize'},PORTFOLIO_WS_AUTH:{base:API_BASE,path:'/v2/feed/portfolio-stream-feed/authorize'},PNL_META:{base:API_BASE,path:'/v2/trade/profit-loss/metadata'},PNL_DATA:{base:API_BASE,path:'/v2/trade/profit-loss/data'},NEWS:{base:API_BASE,path:'/v2/news'},MARGIN:{base:API_BASE,path:'/v2/charges/margin'},BROKERAGE:{base:API_BASE,path:'/v2/charges/brokerage'}};
 const $={tok:'',atok:'',ro:false,prof:null,ords:[],oM:{},pos:[],hld:[],wl:[],cd:[],ind:{sma:0,ema:0,bb:0,rsi:0,macd:0,vol:0,vwap:0,st:0,sr:0},chartUseLiveCandle:true,oSide:'BUY',ws:null,lq:{},oTab:'open',cTF:'days/1',cKey:'',cSym:'',ddSel:{},poll:null};
 // OC WS STATE
 const OC={chain:[],filtered:[],live:{},ws:null,root:null,Feed:null,spot:0,spotCp:0,atm:0,keys:[],map:null,connected:false,underKey:''};
@@ -1713,8 +1715,8 @@ async function rawUpstoxFetch(ep,{method='GET',body=null,query='',headersAdd={}}
   /* AUDIT-API (2026-09-10): token picker — the 1-year read-only Analytics token
      serves market-data GETs (quotes/chain/search/history/news/market-WS auth);
      trading + portfolio paths still require the daily OAuth token. */
-  const MD_PATHS=['/v2/market-quote/quotes','/v3/market-quote/ltp','/v3/market-quote/option-greek','/v2/option/chain','/v2/option/contract','/v2/instruments/search','/v3/historical-candle','/v3/historical-candle/intraday','/v2/news','/v3/feed/market-data-feed/authorize'];
-  const isMD=MD_PATHS.includes(ep.path);
+  const MD_PATHS=['/v2/market/status','/v2/market-quote/quotes','/v3/market-quote/ltp','/v3/market-quote/option-greek','/v2/option/chain','/v2/option/contract','/v2/instruments/search','/v3/historical-candle','/v3/historical-candle/intraday','/v2/news','/v3/feed/market-data-feed/authorize'];
+  const isMD=MD_PATHS.some(p=>ep.path.startsWith(p));
   const bearer=isMD?($.tok||$.atok):$.tok;
   if(!bearer) throw new Error(isMD?'No access token — paste your daily token, or connect the 1-year Analytics token (read-only market data)':'No access token — the daily login token is required for trading and portfolio APIs');
   const base=ep.base||API_BASE;
@@ -2409,6 +2411,7 @@ function logout(){
   if(window._depthPopTimer){clearInterval(window._depthPopTimer);window._depthPopTimer=null;}
   if($.poll){clearInterval($.poll);$.poll=null;}
   clearInterval($.proSyncTimer);$.proSyncTimer=null;
+  if(window.mstatTimer){clearInterval(window.mstatTimer);window.mstatTimer=null;}
   clearTimeout($.pwsReconnectTimer);$.pwsReconnectTimer=null;
   clearTimeout($.wsReconnectTimer);$.wsReconnectTimer=null;
   clearTimeout($.chartDrawTimer);$.chartDrawTimer=null;
@@ -3433,8 +3436,9 @@ async function ldG(){
   if(!$.tok)return;
   try{
     const d=await upstoxFetch(END.GTT_LIST),list=Array.isArray(d.data)?d.data:[],tb=document.getElementById('gTB');
+    $.gts=list;
     if(!list.length){tb.innerHTML=emptyTableRow(8,'⏰','No GTT orders','Create a trigger-based order when you need one.');return;}
-    tb.innerHTML=list.map(g=>{const rule=g.rules?.[0]||{},id=String(g.gtt_order_id||'');return `<tr><td class="muted-id">${escapeHtml(id.slice(0,16))}</td><td><b>${escapeHtml(symbolOf(g))}</b></td><td class="${(g.transaction_type||rule.transaction_type)==='BUY'?'pp':'pn'}">${escapeHtml(g.transaction_type||rule.transaction_type||'-')}</td><td>${escapeHtml(g.type||'-')}</td><td>${fmtP(rule.trigger_price)}</td><td>${toNum(g.quantity)}</td><td><span class="os">${escapeHtml(rule.status||'-')}</span></td><td><button type="button" class="btn br bs" onclick="dlG('${jsStr(id)}')">Cancel</button></td></tr>`;}).join('');
+    tb.innerHTML=list.map(g=>{const rule=g.rules?.[0]||{},id=String(g.gtt_order_id||'');return `<tr><td class="muted-id">${escapeHtml(id.slice(0,16))}</td><td><b>${escapeHtml(symbolOf(g))}</b></td><td class="${(g.transaction_type||rule.transaction_type)==='BUY'?'pp':'pn'}">${escapeHtml(g.transaction_type||rule.transaction_type||'-')}</td><td>${escapeHtml(g.type||'-')}</td><td>${fmtP(rule.trigger_price)}</td><td>${toNum(g.quantity)}</td><td><span class="os">${escapeHtml(rule.status||'-')}</span></td><td><div class="row-actions"><button type="button" class="btn bo bs" onclick="modG('${jsStr(id)}')">Edit</button><button type="button" class="btn br bs" onclick="dlG('${jsStr(id)}')">Cancel</button></div></td></tr>`;}).join('');
   }catch(e){ts('GTT: '+e.message,'e');}
 }
 async function dlG(id){if(!id||!confirm('Cancel this GTT order?'))return;try{await upstoxFetch(END.GTT_CANCEL,{method:'DELETE',body:{gtt_order_id:id}});ts('GTT cancelled','s');ldG();}catch(e){ts('GTT cancel: '+e.message,'e');}}
@@ -4299,7 +4303,7 @@ function ocToggleFS(){const el=document.getElementById('ocWrap');if(!document.fu
 function buildFinancialYears(){const now=new Date(),start=now.getMonth()>=3?now.getFullYear():now.getFullYear()-1,select=document.getElementById('plY');if(!select)return;select.innerHTML=Array.from({length:6},(_,i)=>{const y=start-i,key=String(y).slice(-2)+String(y+1).slice(-2);return `<option value="${key}">${y}-${String(y+1).slice(-2)}</option>`;}).join('');}
 async function ldPl(){
   if(!$.tok)return;
-  const box=document.getElementById('plB');box.innerHTML='<div class="ld"><div class="sp"></div></div>';const segment=document.getElementById('plS').value,fy=document.getElementById('plY').value;if(!fy)return;
+  const box=document.getElementById('plB');box.innerHTML='<div class="ld"><div class="sp"></div></div>';const segment=document.getElementById('plS').value,fy=document.getElementById('plY').value;if(!fy)return;try{ldPlCharges(segment,fy);}catch(e){}
   try{const base=`?segment=${encodeURIComponent(segment)}&financial_year=${encodeURIComponent(fy)}`,meta=await upstoxFetch(END.PNL_META,{query:base}),count=toNum(meta.data?.trades_count),limit=Math.max(1,toNum(meta.data?.page_size_limit,5000));if(!count){box.innerHTML='<div class="large-empty compact-empty"><div class="empty-icon">📑</div><b>No realised trades</b><span>There are no trades for this segment and financial year.</span></div>';return;}const size=Math.min(count,limit,1000),data=await upstoxFetch(END.PNL_DATA,{query:`${base}&page_number=1&page_size=${size}`}),rows=Array.isArray(data.data)?data.data:[],pnl=rows.reduce((a,r)=>a+toNum(r.sell_amount)-toNum(r.buy_amount),0);box.innerHTML=`<div class="sg"><div class="sc"><div class="sl">Trades</div><div class="sv">${count}</div></div><div class="sc"><div class="sl">Loaded</div><div class="sv">${rows.length}</div></div><div class="sc"><div class="sl">Gross Realised</div><div class="sv">${fp(pnl)}</div></div></div>${count>size?`<div class="sigc hsg">Showing the first ${size.toLocaleString('en-IN')} of ${count.toLocaleString('en-IN')} trades.</div>`:''}<div class="tc"><table class="dt"><thead><tr><th>Scrip</th><th>Type</th><th>Qty</th><th>Buy date</th><th>Buy avg</th><th>Sell date</th><th>Sell avg</th><th>P&amp;L</th></tr></thead><tbody>${rows.map(r=>{const p=toNum(r.sell_amount)-toNum(r.buy_amount);return `<tr><td>${escapeHtml(r.scrip_name||r.isin||'-')}</td><td>${escapeHtml(r.trade_type||'-')}</td><td>${toNum(r.quantity)}</td><td>${escapeHtml(r.buy_date||'-')}</td><td>${fmtP(r.buy_average)}</td><td>${escapeHtml(r.sell_date||'-')}</td><td>${fmtP(r.sell_average)}</td><td>${fp(p)}</td></tr>`;}).join('')}</tbody></table></div>`;}catch(e){box.innerHTML=`<div class="emp"><div class="ed">${escapeHtml(e.message)}</div></div>`;}
 }
 
@@ -4516,7 +4520,7 @@ function proPortfolioStatus(on,text){const label=document.getElementById('psPort
 function handlePortfolioUpdate(update){if(!update||!update.update_type)return;const type=update.update_type;if(type==='order'){const i=($.ords||[]).findIndex(x=>x.order_id===update.order_id);if(i>=0)$.ords[i]={...$.ords[i],...update};else $.ords.unshift(update);if(update.order_id)$.oM[update.order_id]=$.ords[i>=0?i:0];proInvalidate('/order/');if(document.getElementById('pg-orders')?.classList.contains('on'))rnO();const open=$.ords.filter(isOp),badge=document.getElementById('oBd');if(badge){badge.style.display=open.length?'inline':'none';badge.textContent=open.length;}}else if(type==='position'){proInvalidate('/portfolio/short-term-positions');setTimeout(()=>{if(document.getElementById('pg-pos')?.classList.contains('on')||document.getElementById('pg-dash')?.classList.contains('on'))ldP().then(()=>renderProDashboard());},250);}else if(type==='holding'){proInvalidate('/portfolio/long-term-holdings');setTimeout(()=>{if(document.getElementById('pg-hold')?.classList.contains('on')||document.getElementById('pg-dash')?.classList.contains('on'))ldH().then(()=>renderProDashboard());},300);}else if(type==='gtt_order'){proInvalidate('/order/gtt');if(document.getElementById('pg-gtt')?.classList.contains('on'))setTimeout(ldG,250);}if(document.getElementById('pg-dash')?.classList.contains('on'))renderProDashboard();}
 async function connectPortfolioStream(){if(($.atok&&!$.tok)||!$.tok||$.pws?.readyState===WebSocket.OPEN||$.pws?.readyState===WebSocket.CONNECTING||$.pwsConnecting)return;clearTimeout($.pwsReconnectTimer);try{$.pwsConnecting=true;proPortfolioStatus(false,'Connecting');const query='?update_types=order%2Cgtt_order%2Cposition%2Cholding',d=await upstoxFetch(END.PORTFOLIO_WS_AUTH,{query,_force:true}),url=d.data?.authorized_redirect_uri||d.data?.authorizedRedirectUri;if(!url)throw new Error('No portfolio stream URL');const ws=new WebSocket(url);$.pws=ws;$.pwsConnecting=false;ws.onopen=()=>{if($.pws!==ws)return;$.pwsAttempts=0;proPortfolioStatus(true,'Live');};ws.onmessage=async e=>{if($.pws!==ws)return;try{let raw=e.data;if(raw instanceof Blob)raw=await raw.text();else if(raw instanceof ArrayBuffer)raw=new TextDecoder().decode(new Uint8Array(raw));const data=typeof raw==='string'?JSON.parse(raw):raw;handlePortfolioUpdate(data);}catch(err){console.warn('Portfolio stream message',err);}};ws.onclose=()=>{if($.pws!==ws)return;$.pws=null;proPortfolioStatus(false,'Reconnecting');const attempt=($.pwsAttempts||0)+1;$.pwsAttempts=attempt;if(attempt<=6)$.pwsReconnectTimer=setTimeout(connectPortfolioStream,Math.min(60000,2000*Math.pow(2,Math.min(attempt,5))));else proPortfolioStatus(false,'Paused');};ws.onerror=()=>{if($.pws===ws)proPortfolioStatus(false,'Feed error');};}catch(e){$.pwsConnecting=false;console.warn('Portfolio stream',e.message);const attempt=($.pwsAttempts||0)+1;$.pwsAttempts=attempt;proPortfolioStatus(false,attempt<=6?'Unavailable • retrying':'Paused');if(attempt<=6)$.pwsReconnectTimer=setTimeout(connectPortfolioStream,Math.min(60000,3000*Math.pow(2,Math.min(attempt,4))));}}
 function startProSync(){clearInterval($.proSyncTimer);const isAndroid=/Android/i.test(navigator.userAgent||'');$.proSyncTimer=setInterval(proSyncTick, isAndroid?10000:5000);proSyncTick();connectPortfolioStream();}
-function initProTerminal(){document.body.classList.add('pro-tv');try{if(localStorage.getItem('pro_sidebar_mini')==='1')document.body.classList.add('sidebar-mini');const saved=localStorage.getItem('pro_inspector_open');if(saved==='1')document.body.classList.add('pro-inspector-open');}catch{}document.querySelectorAll('.si').forEach(x=>x.title=x.textContent.trim());renderProMarketPulse();loadProMarkets();startProSync();
+function initProTerminal(){document.body.classList.add('pro-tv');try{if(localStorage.getItem('pro_sidebar_mini')==='1')document.body.classList.add('sidebar-mini');const saved=localStorage.getItem('pro_inspector_open');if(saved==='1')document.body.classList.add('pro-inspector-open');}catch{}document.querySelectorAll('.si').forEach(x=>x.title=x.textContent.trim());renderProMarketPulse();loadProMarkets();startProSync();try{ldMarketStatus();if(window.mstatTimer)clearInterval(window.mstatTimer);window.mstatTimer=setInterval(ldMarketStatus,300000);}catch(e){}
  /* AUDIT FIX: logout() stops the fast REST refresher (fastStop), but nothing
     re-armed it on the next login — after one logout/login cycle the "fast
     refresh while the WS is down" silently stayed off until a page reload.
@@ -6685,6 +6689,132 @@ async function panicExitAll(){
   if(!confirm('This is the last confirmation. Execute panic exit?'))return;
   await cancelAllMine();
   await exitAllMine();
+}
+
+/* ================= SECTION 28: GTT modify · P&L charges · kill switch · market status (Tier-1, 2026-09-10) ================= */
+/* Minimal self-contained modal shell (dark-theme vars, no CSS-pack coupling). */
+function utModal(title,bodyHtml,wide){
+  utModalClose();
+  const ov=document.createElement('div');
+  ov.id='utModalOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(2,6,12,.66);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML=`<div role="dialog" aria-label="${escapeHtml(title)}" style="background:var(--b3,#121c2a);color:var(--t1,#e8eef7);border:1px solid var(--bd,#2a3a52);border-radius:12px;max-width:${wide?'680px':'460px'};width:100%;max-height:86vh;overflow:auto;box-shadow:0 24px 60px rgba(0,0,0,.5)"><div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--bd,#2a3a52)"><b>${escapeHtml(title)}</b><button type="button" class="mcl" onclick="utModalClose()" style="background:none;border:none;color:var(--t2,#9fb0c6);font-size:16px;cursor:pointer">✕</button></div><div style="padding:14px">${bodyHtml}</div></div>`;
+  ov.addEventListener('click',e=>{if(e.target===ov)utModalClose();});
+  document.body.appendChild(ov);
+}
+function utModalClose(){const ov=document.getElementById('utModalOv');if(ov)ov.remove();}
+function gttTickFor(g){const m=($.instrumentMaster||[]).find(x=>x.k===g.instrument_token)||{};const t=Number(m.tick??m.tick_size);return Number.isFinite(t)&&t>0?t:.05;}
+/* GTT modify — PUT /v3/order/gtt/modify {type,quantity,rules[],gtt_order_id}.
+   Doc constraints honored: strategies/trigger_types preserved as-is (OPEN GTT
+   ENTRY may only accept IMMEDIATE), MULTIPLE stays 2–3 rules, trailing_gap
+   preserved (editable only when it already exists). */
+function modG(id){
+  if(!$.tok)return ts('Log in first','w');
+  const g=($.gts||[]).find(x=>String(x.gtt_order_id)===String(id));
+  if(!g)return ts('GTT not found — refresh the list','e');
+  const rules=Array.isArray(g.rules)?g.rules:[];
+  const entry=rules[0]||{},target=rules.find(r=>r.strategy==='TARGET'),sl=rules.find(r=>r.strategy==='STOPLOSS');
+  const tick=gttTickFor(g);
+  const fld=(id2,label,val)=>`<div class="fgrp"><label>${label}</label><input type="number" class="fi" id="${id2}" step="0.05" value="${val}"></div>`;
+  let body=`<div class="fgrp"><label>Order</label><div>${escapeHtml(symbolOf(g)||g.instrument_token||'-')} · ${escapeHtml(g.type||'SINGLE')} · ${escapeHtml(String(g.transaction_type||entry.transaction_type||'-'))}</div></div>
+  ${fld('gmQ','Quantity',toNum(g.quantity,1))}
+  ${fld('gmTr','Entry trigger price',toNum(entry.trigger_price,0))}
+  <p style="font-size:11px;color:var(--t3,#8296ad);margin:2px 0 10px">Entry trigger type stays <b>${escapeHtml(entry.trigger_type||'-')}</b> (Upstox restricts type changes on OPEN GTTs). Tick size ₹${tick}</p>`;
+  if(target)body+=fld('gmTg','Target price',toNum(target.trigger_price,0));
+  if(sl){body+=fld('gmSl','Stop-loss price',toNum(sl.trigger_price,0));
+    if(sl.trailing_gap!=null)body+=fld('gmGap','Trailing SL gap',toNum(sl.trailing_gap,0));}
+  body+=`<button type="button" class="btn bp" id="gmSave" style="width:100%">Save changes</button>`;
+  utModal('Modify GTT',body);
+  document.getElementById('gmSave').addEventListener('click',()=>{
+    const q=parseInt(String(document.getElementById('gmQ').value).trim(),10);
+    if(!Number.isInteger(q)||q<=0)return ts('Quantity must be a positive whole number','e');
+    const num=id2=>Number(document.getElementById(id2)?.value||0);
+    const nR=[];
+    const e2={...entry,trigger_price:num('gmTr')};
+    if(!(e2.trigger_price>0))return ts('Entry trigger must be positive','e');
+    if(!priceOnTick(e2.trigger_price,tick))return ts(`Entry trigger must follow tick ₹${tick}`,'e');
+    nR.push(e2);
+    if(target){const t2={...target,trigger_price:num('gmTg')};
+      if(!(t2.trigger_price>0))return ts('Target must be positive','e');
+      if(!priceOnTick(t2.trigger_price,tick))return ts(`Target must follow tick ₹${tick}`,'e');nR.push(t2);}
+    if(sl){const s2={...sl,trigger_price:num('gmSl')};
+      if(!(s2.trigger_price>0))return ts('Stop-loss must be positive','e');
+      if(!priceOnTick(s2.trigger_price,tick))return ts(`Stop-loss must follow tick ₹${tick}`,'e');
+      const gapEl=document.getElementById('gmGap');
+      if(gapEl)s2.trailing_gap=num('gmGap');
+      nR.push(s2);}
+    const btn=document.getElementById('gmSave');btn.disabled=true;
+    upstoxFetch(END.GTT_MODIFY,{method:'PUT',body:{type:g.type||'SINGLE',quantity:q,rules:nR,gtt_order_id:String(g.gtt_order_id)}})
+      .then(d=>{utModalClose();const lat=d.metadata?.latency;ts(`GTT updated${lat!=null?` · broker ${lat} ms`:''}`,'s');proInvalidate('/order/gtt');ldG();})
+      .catch(e=>{btn.disabled=false;ts('GTT modify: '+e.message,'e');});
+  });
+}
+/* P&L charges breakdown — GET /v2/trade/profit-loss/charges?segment&financial_year */
+async function ldPlCharges(segment,fy){
+  if(!$.tok)return;
+  const card=document.getElementById('plChCard'),box=document.getElementById('plCh'),tot=document.getElementById('plChTotal');
+  if(!card||!box)return;
+  card.style.display='';box.innerHTML='<span class="muted-note">Loading charges…</span>';if(tot)tot.textContent='';
+  try{
+    const d=await upstoxFetch(END.PNL_CHARGES,{query:`?segment=${encodeURIComponent(segment)}&financial_year=${encodeURIComponent(fy)}`});
+    const c=d.data?.charges_breakdown||{},tx=c.taxes||{},ch=c.charges||{};
+    const row=(l,v)=>`<tr><td>${escapeHtml(l)}</td><td style="text-align:right">${fp(v)}</td></tr>`;
+    box.innerHTML=`<div class="tc"><table class="dt"><tbody>
+      ${row('Brokerage',c.brokerage)}${row('GST',tx.gst)}${row('STT',tx.stt)}${row('Stamp duty',tx.stamp_duty)}
+      ${row('Transaction',ch.transaction)}${row('Clearing',ch.clearing)}${row('SEBI turnover',ch.sebi_turnover)}${row('Demat transaction',ch.demat_transaction)}${row('Other',ch.others)}
+    </tbody></table></div>`;
+    if(tot)tot.textContent='Total '+fp(c.total);
+  }catch(e){box.innerHTML=`<span class="muted-note">Charges unavailable: ${escapeHtml(String(e.message||e))}</span>`;}
+}
+/* Kill switch — POST /v2/user/kill-switch [{segment,action}].
+   Docs: pending orders auto-cancel on DISABLE; 12-hour cooling to re-enable;
+   token must be regenerated afterwards. Response lists every segment state. */
+const KS_SEGS=['NSE_EQ','BSE_EQ','NSE_FO','BSE_FO','MCX_FO','NCD_FO','BCD_FO','NSE_COM'];
+function ksOpen(){
+  if(!$.tok)return ts('Log in first','w');
+  const st=window._ksStates||{};
+  const rows=KS_SEGS.map(s=>{
+    const on=st[s];
+    const badge=on==null?'<span class="os" style="background:var(--yl2,#3a3323)">unknown</span>':on?'<span class="os" style="background:var(--rd2,#3a2326);color:#ff9aa2">KILLED</span>':'<span class="os" style="background:var(--gn2,#1d3327);color:#7ee2a8">active</span>';
+    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--bd,#223146)"><b style="min-width:86px">${s}</b>${badge}<span style="flex:1"></span><button type="button" class="btn br bs" onclick="ksSet('${s}','DISABLE')">Disable</button><button type="button" class="btn bg bs" onclick="ksSet('${s}','ENABLE')">Enable</button></div>`;
+  }).join('');
+  utModal('🚨 Kill switch — segment trading blocks',`<p style="font-size:11.5px;color:var(--t3,#8296ad);margin:0 0 10px;line-height:1.45">Disabling a segment <b>cancels its pending orders</b> and blocks new ones. A <b>12-hour cooling period</b> applies before re-enabling, and your access token must be <b>regenerated</b> after any change. All open positions in a segment must be closed first.</p>${rows}`,true);
+}
+async function ksSet(segment,action){
+  if(!$.tok)return;
+  const msg=action==='DISABLE'
+    ?`DISABLE ${segment}? Pending orders in ${segment} will be CANCELLED, new orders blocked, and a 12-hour cooling period starts. You must regenerate your token afterwards.`
+    :`ENABLE ${segment}? Note the 12-hour cooling period after a disable, and that the token may need regeneration.`;
+  if(!confirm(msg))return;
+  try{
+    const d=await upstoxFetch(END.KILL_SWITCH,{method:'POST',_force:true,body:[{segment,action}]});
+    (Array.isArray(d.data)?d.data:[]).forEach(r=>{window._ksStates=window._ksStates||{};window._ksStates[r.segment]=!!r.kill_switch_enabled;});
+    ts(`Kill switch: ${segment} ${action==='DISABLE'?'disabled — orders cancelled, trading blocked':'enabled'}${window._ksStates[segment]?'':' (request may have failed — check status)'} · regenerate your token for it to take effect`,action==='DISABLE'?'w':'s');
+    if(document.getElementById('utModalOv'))ksOpen();
+  }catch(e){ts('Kill switch: '+e.message,'e');}
+}
+/* Exchange status chip — GET /v2/market/status/:exchange (+ live CAS badge).
+   Analytics-token friendly; refreshes every 5 min. */
+async function ldMarketStatus(){
+  if(!$.tok&&!$.atok)return;
+  const chip=document.getElementById('mStat'),txt=document.getElementById('mStatT');
+  if(!chip||!txt)return;
+  try{
+    const res=await Promise.allSettled([
+      upstoxFetch({base:API_BASE,path:'/v2/market/status/NSE'}),
+      upstoxFetch({base:API_BASE,path:'/v2/market/status/MCX_FO'})
+    ]);
+    const pick=r=>r.status==='fulfilled'?r.value?.data:null;
+    const nse=pick(res[0]),mcx=pick(res[1]);
+    $.mktStatus={nse,mcx};
+    const isOpen=d=>/OPEN/.test(String(d?.status||''));
+    const nseOpen=isOpen(nse),mcxOpen=isOpen(mcx);
+    const anyOpen=nseOpen||mcxOpen;
+    txt.textContent=anyOpen?(nseOpen&&mcxOpen?'Mkt LIVE':nseOpen?'NSE live':'MCX live'):'Mkt CLOSED';
+    chip.className='hst '+(anyOpen?'ok':'off');
+    const fmt=d=>d?`${d.exchange}: ${d.status}${d.cas_eligible_status?.status?` · CAS ${d.cas_eligible_status.status}`:''}${d.last_updated?` · since ${new Date(d.last_updated).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`:''}`:'n/a';
+    chip.title=`Exchange status${String.fromCharCode(10)}• ${fmt(nse)}${String.fromCharCode(10)}• ${fmt(mcx)}`;
+  }catch(e){/* silent — chip stays stale, feed chips carry the signal */}
 }
 
 /* Deferred boot: render the active-column chips once every definition exists. */
