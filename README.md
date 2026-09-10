@@ -50,7 +50,19 @@ The login card offers:
 
 1. **API key + secret + redirect URI** → opens the Upstox authorize page in a new tab (`noopener`); you paste the `code` from the redirect back into "STEP 2" and hit **Exchange**. The secret is kept in `sessionStorage` only and wiped immediately after the exchange. ⚠️ The UI (and the audit) recommend exchanging the code on a server you control for anything beyond personal use.
 2. **Access token paste** → paste a token generated elsewhere (e.g. Upstox API playground or your own backend). Simplest and secret-free.
-3. Tokens live in `sessionStorage` (`u_tok`) for the tab's lifetime only. Upstox access tokens expire daily (~3:30 AM IST); the app detects expiry on startup, on the market WS (after 5 auth failures), and on the option-chain feed, and returns you to login.
+3. **Analytics token paste** → a **1-year read-only** token generated once from the [Upstox Developer Apps page](https://account.upstox.com/developer/apps#analytics). It powers market data only — quotes, charts, option chain, news, search and the market WebSocket — with no daily re-authorization. Trading and portfolio APIs stay locked until you connect a daily token; logout clears it.
+4. Tokens live in `sessionStorage` (`u_tok` daily, `u_atok` analytics) for the tab's lifetime only. Upstox daily tokens expire (~3:30 AM IST); the app detects expiry and returns you to login. Logging out also invalidates the daily token server-side (`DELETE /v2/logout`, best-effort).
+
+---
+
+## 3.5 Risk actions & trade book (added 2026-09-10)
+
+- **🛑 Panic (header)** — double-confirmed bulk action: cancels **all open orders tagged `uptrade-web`** (`DELETE /v2/order/multi/cancel?tag=`) then squares off **all open positions tagged `uptrade-web`** (`POST /v2/order/positions/exit?tag=`). Partial results (207) are reported per-leg in a toast.
+- **✖ Cancel all (mine)** on the Orders page and **⇅ Exit all (mine)** on the Positions page run the two halves individually.
+- **🧾 Trades page** — today's executed fills with trade count and buy/sell turnover (`GET /v2/order/trades/get-trades-for-day`).
+- **Bracket GTT** — the GTT ticket accepts optional **Target** and **Stop-loss** prices (plus an optional **Trailing SL gap** on the SL leg) and places a `type: MULTIPLE` GTT (`ENTRY` + `TARGET` + `STOPLOSS` legs) with side-aware validation: BUY requires target above the entry trigger and SL below; SELL is mirrored.
+- **MCX orders** show an extra confirmation because Upstox's V3 docs state commodity quantity is counted in **lots** — verify your ticket means lots, not units.
+- Order-placed toasts now show the broker's **processing latency** from the API's `metadata.latency`.
 
 ---
 
@@ -157,7 +169,8 @@ Main state containers (top of block 3):
 
 | Key | Storage | Contents | Cleared when |
 |---|---|---|---|
-| `u_tok` | `sessionStorage` | access token | logout / tab close / detected expiry |
+| `u_tok` | `sessionStorage` | daily access token | logout (incl. server-side invalidation) / tab close / detected expiry |
+| `u_atok` | `sessionStorage` | Analytics token (1-year, read-only market data) | logout / tab close |
 | `u_as` | `sessionStorage` | API secret (exchange step only) | immediately after token exchange |
 | `u_ak`, `u_ru` | `localStorage` | API key + redirect URI (login convenience) | never (non-secret) |
 | `u_wl` | `localStorage` | watchlist instruments | edited in UI |

@@ -12,6 +12,8 @@
 
 ## 1. Verdict at a glance
 
+> **Update 2026-09-10 (implementation pass):** following this check, the highest-value roadmap items were implemented in `index.html` and verified (77/77 smoke + 17/17 feature assertions): Analytics-token login (0.1), server-side logout (0.4), v3 quotes migration (0.5), latency readout (0.6), MCX lots confirm (0.3 mitigation), bracket GTT with trailing SL (1.1 place-side), bulk cancel-all/exit-all/panic (1.3), and the Trades page (1.4). See §5 status column.
+
 | Area | Result |
 |---|---|
 | App endpoints that are **documented and correctly used** | **26 / 29** ✅ |
@@ -183,26 +185,26 @@ Priorities: **T0 = foundation/quick wins, T1 = trading power, T2 = analytics, T3
 
 ### T0 — Foundation (low effort, high leverage)
 
-| # | Feature | Endpoint(s) | Integration point |
+| # | Feature | Endpoint(s) | Status |
 |---|---|---|---|
-| 0.1 | **Analytics Token login mode** — 1-year read-only token, no daily re-auth for market data, charts, option chain, news, fundamentals | any GET in Market Data + (with static IP) portfolio/orders reads | Add a third login card field (like `aT`); store in `sessionStorage`; in `upstoxFetch` pick token by endpoint class; keep daily token only for trading paths. Biggest daily-friction killer the docs offer |
-| 0.2 | **Sandbox toggle** — risk-free order testing | `sandbox.upstox.com` supports place/modify/cancel | Add "SANDBOX" badge + base-URL switch in `END.ORDER_*`; the app already has an HFT base constant to fork |
-| 0.3 | **MCX lots fix (F-1)** | Place V3 lots semantics | `plO()`: send `qty/lot` for `MCX_*` keys after sandbox verification |
-| 0.4 | **Server-side logout** | `DELETE /v2/logout` | `logout()` fire-and-forget before local teardown |
-| 0.5 | **Migrate full quotes to v3 (F-2)** | v3 market-quote | `END.QUOTES_V3` + `qO/depthPop` field mapping |
-| 0.6 | **Latency readout** | `metadata.latency` | `plO()` toast / status bar |
-| 0.7 | **Relative expiries** | `option/chain` keywords | `ocLoadExpiries()` — default chain to `current_week` etc., auto-rollover for free |
+| 0.1 | **Analytics Token login mode** — 1-year read-only token, no daily re-auth for market data, charts, option chain, news, fundamentals | any GET in Market Data + market-WS authorize | ✅ **IMPLEMENTED 2026-09-10** — third auth field (`aN`), token picker in `rawUpstoxFetch` (market-data paths accept `$.atok`), RO `init()` branch, boot restore, portfolio-stream stays daily-only |
+| 0.2 | **Sandbox toggle** — risk-free order testing | `sandbox.upstox.com` supports place/modify/cancel | open |
+| 0.3 | **MCX lots fix (F-1)** | Place V3 lots semantics | ⚠️ **mitigated 2026-09-10** — `plO()` now forces an explicit LOTS-vs-units confirm on every MCX ticket; auto-conversion awaits sandbox verification |
+| 0.4 | **Server-side logout** | `DELETE /v2/logout` | ✅ **IMPLEMENTED 2026-09-10** — fire-and-forget before local teardown in `logout()` |
+| 0.5 | **Migrate full quotes to v3 (F-2)** | v3 market-quote | ✅ **IMPLEMENTED 2026-09-10** — `END.QUOTES_V3` now `/v3/market-quote/quotes` (response re-keyed by `instrument_token`, which both consumers already did; gains `year_high/low`, CAS fields for free) |
+| 0.6 | **Latency readout** | `metadata.latency` | ✅ **IMPLEMENTED 2026-09-10** — order-placed toast appends `· broker N ms` |
+| 0.7 | **Relative expiries** | `option/chain` keywords | open |
 
 ### T1 — Trading power
 
-| # | Feature | Endpoint(s) | Integration point |
+| # | Feature | Endpoint(s) | Status |
 |---|---|---|---|
-| 1.1 | **Bracket GTT + Trailing SL builder** (ENTRY+TARGET+STOPLOSS legs, `trailing_gap` TSL) | `gtt/place` `type:MULTIPLE`, `gtt/modify`, `gtt` (get) | Extend GTT page (`crG`) with leg rows; new `modG()` using `PUT /v3/order/gtt/modify`; risk UI enforces TARGET/STOPLOSS = `IMMEDIATE` |
-| 1.2 | **Multi-leg strategy basket** (straddle/strangle/condor presets from OC ATM ± offsets) | `POST place-multi-order` | New modal fed by `OC.filtered`; reuse `estMargin` (20-instrument batch!) for basket margin before submit |
-| 1.3 | **One-click cancel-all-mine / exit-all-mine** — app already tags every order `uptrade-web` | `DELETE cancel-multi-order?tag=uptrade-web`, `POST /v2/order/positions/exit?tag=uptrade-web` | Header "🛑" button; render 207 `errors[]` per instrument; tag filter only valid for **intraday** positions (docs) |
-| 1.4 | **Trade book + charge-adjusted P&L** | `GET /v2/order/trades/get-trades-for-day`, `/v2/order/trades`, `/v2/trade/profit-loss/charges` | New "Trades" page next to P&L; `PNL_DATA` pagination pattern is already built — replicate |
-| 1.5 | **Position converter** (MIS↔NRML↔MTF) | `PUT /v2/portfolio/convert-position` | Button on positions rows (`ldP` renderer) |
-| 1.6 | **Order-history-by-tag** drill-down | `/v2/order/history?tag=` | Filter chip on Orders page |
+| 1.1 | **Bracket GTT + Trailing SL builder** (ENTRY+TARGET+STOPLOSS legs, `trailing_gap` TSL) | `gtt/place` `type:MULTIPLE` | ✅ **IMPLEMENTED 2026-09-10** — GTT ticket gains optional Target / Stop-loss / Trailing-gap fields; side-aware validation (BUY: target>trigger>SL; SELL mirrored); tick checks; builds `type:MULTIPLE` rules. GTT *modify* API integration still open |
+| 1.2 | **Multi-leg strategy basket** (straddle/strangle/condor presets) | `POST place-multi-order` | open |
+| 1.3 | **One-click cancel-all-mine / exit-all-mine** — app tags every order `uptrade-web` | `DELETE /v2/order/multi/cancel?tag=`, `POST /v2/order/positions/exit?tag=` | ✅ **IMPLEMENTED 2026-09-10** — header 🛑 Panic (double-confirm, cancel→exit), Orders-page "Cancel all (mine)", Positions-page "Exit all (mine)"; 207 per-leg errors surfaced; empty-book pre-checks |
+| 1.4 | **Trade book + charge-adjusted P&L** | `GET /v2/order/trades/get-trades-for-day` (+ `/v2/trade/profit-loss/charges`) | ✅ **IMPLEMENTED 2026-09-10** — new Trades page (sidebar 🧾): trade count / buy value / sell value metrics + escaped table. Charges column still open |
+| 1.5 | **Position converter** (MIS↔NRML↔MTF) | `PUT /v2/portfolio/convert-position` | open |
+| 1.6 | **Order-history-by-tag** drill-down | `/v2/order/history?tag=` | open |
 
 ### T2 — Analytics (all Analytics-Token friendly = no daily token needed)
 

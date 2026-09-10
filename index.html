@@ -1328,6 +1328,8 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
     <button type="button" class="abtn p" onclick="aStart()">🔐 Login</button>
     <div class="adv"><span>OR TOKEN</span></div>
     <div class="fg"><label>ACCESS TOKEN</label><input class="fi" id="aT" placeholder="Paste token"></div>
+    <div class="adv"><span>OR ANALYTICS TOKEN</span></div>
+    <div class="fg"><label>ANALYTICS TOKEN <span style="color:var(--t3);font-weight:400">(1-year · read-only market data)</span></label><input class="fi" id="aN" placeholder="Paste analytics token" autocomplete="off" spellcheck="false"></div>
     <button type="button" class="abtn s" onclick="aTok()">Connect</button>
     <div id="cB" style="display:none;margin-top:12px"><div class="adv"><span>STEP 2</span></div>
     <div class="fg"><label>AUTH CODE</label><input class="fi" id="aCd" placeholder="Code from redirect"></div>
@@ -1345,6 +1347,7 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
         <div class="snt">Trading</div>
         <div class="si" data-p="orders" onclick="nav('orders')"><span class="ic">📋</span>Orders<span class="bdg" id="oBd" style="display:none">0</span></div>
         <div class="si" data-p="gtt" onclick="nav('gtt')"><span class="ic">⏰</span>GTT</div>
+        <div class="si" data-p="trades" onclick="nav('trades')"><span class="ic">🧾</span>Trades</div>
         <div class="si" data-p="pos" onclick="nav('pos')"><span class="ic">📈</span>Positions</div>
         <div class="si" data-p="hold" onclick="nav('hold')"><span class="ic">💼</span>Holdings</div>
         <div class="snt">Analysis</div>
@@ -1370,7 +1373,7 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
       <div class="pro-mkt pro-mkt-vix" id="proVixMarket" data-key="NSE_INDEX|India VIX"><span>VIX</span><b id="pmVix">—</b><i id="pmVixC">—</i></div>
       <div class="pro-mkt pro-mkt-commodity" id="proCrudeMarket" data-key="MCX_FO|565899" title="Crude Oil front-month futures"><span>CRUDE FUT <em class="pro-card-expiry" id="pmCrudeExp"></em></span><b id="pmCrude">—</b><i id="pmCrudeC">—</i></div>
     </div>
-    <div class="hr"><div class="hst off ws-count" id="wCnt" title="Active WebSockets — click for details"><span class="sdot"></span><span id="wCntT">0 WS</span></div><div class="hst off" id="wS"><span class="sdot"></span><span id="wT">Off</span></div><button type="button" class="hb" onclick="wsC()">Feed</button><button type="button" class="hb" id="proInspectorBtn" onclick="proToggleInspector()">Inspector</button><button type="button" class="hb dg" onclick="logout()">Logout</button></div>
+    <div class="hr"><div class="hst off ws-count" id="wCnt" title="Active WebSockets — click for details"><span class="sdot"></span><span id="wCntT">0 WS</span></div><div class="hst off" id="wS"><span class="sdot"></span><span id="wT">Off</span></div><button type="button" class="hb" onclick="wsC()">Feed</button><button type="button" class="hb" id="proInspectorBtn" onclick="proToggleInspector()">Inspector</button><button type="button" class="hb" id="panicBtn" onclick="panicExitAll()" title="Cancel MY open orders, then square off MY open positions (tag: uptrade-web)">🛑 Panic</button><button type="button" class="hb dg" onclick="logout()">Logout</button></div>
 </header>
 <div class="pgc">
 
@@ -1413,7 +1416,7 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
     </div>
   </section>
   <section class="cd data-panel">
-    <div class="list-toolbar"><div class="tabs compact-tabs"><div class="tab on" onclick="soT('open',this)">Open</div><div class="tab" onclick="soT('done',this)">Closed</div><div class="tab" onclick="soT('all',this)">All</div></div><button type="button" class="icon-btn subtle" onclick="ldO()" title="Refresh orders">↻</button></div>
+    <div class="list-toolbar"><div class="tabs compact-tabs"><div class="tab on" onclick="soT('open',this)">Open</div><div class="tab" onclick="soT('done',this)">Closed</div><div class="tab" onclick="soT('all',this)">All</div></div><button type="button" class="btn br bs" onclick="cancelAllMine()" title="Cancel all open orders tagged uptrade-web (this app)">✖ Cancel all (mine)</button><button type="button" class="icon-btn subtle" onclick="ldO()" title="Refresh orders">↻</button></div>
     <div class="cb table-pad"><div class="tc data-viewport"><table class="dt"><thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Type</th><th>Qty</th><th>Price</th><th>Status</th><th>ID</th><th>Action</th></tr></thead><tbody id="oTB"></tbody></table></div></div>
   </section>
 </div>
@@ -1431,16 +1434,28 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
       <div class="fgrp"><label>Quantity</label><input type="number" class="fi" id="gQt" value="1" min="1"></div>
       <div class="fgrp"><label>Trigger type</label><select class="fi" id="gTt"><option value="ABOVE">ABOVE</option><option value="BELOW">BELOW</option><option value="IMMEDIATE">IMMEDIATE</option></select></div>
       <div class="fgrp"><label>Trigger price</label><input type="number" class="fi" id="gTr" step="0.05"></div>
+      <div class="fgrp"><label>Target price <span style="color:var(--t3);font-weight:400">(optional — enables bracket)</span></label><input type="number" class="fi" id="gTg" step="0.05"></div>
+      <div class="fgrp"><label>Stop-loss price <span style="color:var(--t3);font-weight:400">(optional — with target)</span></label><input type="number" class="fi" id="gSl" step="0.05"></div>
+      <div class="fgrp" id="gTslG" style="display:none"><label>Trailing SL gap <span style="color:var(--t3);font-weight:400">(≥10% of LTP−SL per Upstox)</span></label><input type="number" class="fi" id="gTsl" step="0.05"></div>
       <div class="fgrp form-action"><label>&nbsp;</label><button type="button" class="btn bp" onclick="crG()">Create GTT</button></div>
     </div>
   </section>
   <section class="cd data-panel"><div class="list-toolbar"><div><b>Active and recent GTT orders</b></div><button type="button" class="icon-btn subtle" onclick="ldG()">↻</button></div><div class="cb table-pad"><div class="tc data-viewport"><table class="dt"><thead><tr><th>ID</th><th>Instrument</th><th>Side</th><th>Type</th><th>Trigger</th><th>Qty</th><th>Status</th><th>Action</th></tr></thead><tbody id="gTB"></tbody></table></div></div></section>
 </div>
 
+<div class="pg compact-page" id="pg-trades">
+  <div class="page-head">
+    <div><div class="page-title">🧾 Trades <span class="v3">TODAY</span></div><div class="page-sub">Executed trades for the current trading day</div></div>
+    <div class="page-actions"><button type="button" class="icon-btn" onclick="ldT()" title="Refresh trades">↻</button></div>
+  </div>
+  <div class="metric-strip"><div class="metric"><span>Trades</span><b id="tCnt">0</b></div><div class="metric"><span>Buy value</span><b id="tBuy">₹0</b></div><div class="metric"><span>Sell value</span><b id="tSell">₹0</b></div></div>
+  <section class="cd data-panel"><div class="list-toolbar"><b>Trade book</b><button type="button" class="icon-btn subtle" onclick="ldT()">↻</button></div><div class="cb table-pad"><div class="tc data-viewport"><table class="dt"><thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Value</th><th>Order ID</th></tr></thead><tbody id="tTB"></tbody></table></div></div></section>
+</div>
+
 <div class="pg compact-page" id="pg-pos">
   <div class="page-head"><div><div class="page-title">📈 Positions</div><div class="page-sub">Open and closed intraday positions</div></div><div class="page-actions"><button type="button" class="icon-btn" onclick="ldP()">↻</button></div></div>
   <div class="metric-strip"><div class="metric"><span>Total P&amp;L</span><b id="pTP">₹0</b></div><div class="metric"><span>Realised</span><b id="pRP">₹0</b></div><div class="metric"><span>Unrealised</span><b id="pUP">₹0</b></div></div>
-  <section class="cd data-panel"><div class="list-toolbar"><b>Position book</b><button type="button" class="icon-btn subtle" onclick="ldP()">↻</button></div><div class="cb table-pad"><div class="tc data-viewport"><table class="dt"><thead><tr><th>Symbol</th><th>Product</th><th>Qty</th><th>Average</th><th>LTP</th><th>P&amp;L</th><th>Action</th></tr></thead><tbody id="pTB"></tbody></table></div></div></section>
+  <section class="cd data-panel"><div class="list-toolbar"><b>Position book</b><button type="button" class="btn br bs" onclick="exitAllMine()" title="Square off all MY open positions (tag: uptrade-web)">⇅ Exit all (mine)</button><button type="button" class="icon-btn subtle" onclick="ldP()">↻</button></div><div class="cb table-pad"><div class="tc data-viewport"><table class="dt"><thead><tr><th>Symbol</th><th>Product</th><th>Qty</th><th>Average</th><th>LTP</th><th>P&amp;L</th><th>Action</th></tr></thead><tbody id="pTB"></tbody></table></div></div></section>
 </div>
 
 <div class="pg compact-page" id="pg-hold">
@@ -1648,8 +1663,8 @@ message FeedResponse{ Type type = 1; map<string, Feed> feeds = 2; int64 currentT
 const DB=[{k:'NSE_EQ|INE002A01018',s:'RELIANCE',n:'Reliance Industries',x:'NSE'},{k:'NSE_EQ|INE009A01021',s:'INFY',n:'Infosys',x:'NSE'},{k:'NSE_EQ|INE467B01029',s:'TCS',n:'Tata Consultancy',x:'NSE'},{k:'NSE_EQ|INE040A01034',s:'HDFCBANK',n:'HDFC Bank',x:'NSE'},{k:'NSE_EQ|INE090A01021',s:'ICICIBANK',n:'ICICI Bank',x:'NSE'},{k:'NSE_EQ|INE154A01025',s:'ITC',n:'ITC Ltd',x:'NSE'},{k:'NSE_EQ|INE062A01020',s:'SBIN',n:'State Bank',x:'NSE'},{k:'NSE_EQ|INE030A01027',s:'HINDUNILVR',n:'Hindustan Unilever',x:'NSE'},{k:'NSE_EQ|INE397D01024',s:'BHARTIARTL',n:'Bharti Airtel',x:'NSE'},{k:'NSE_EQ|INE075A01022',s:'WIPRO',n:'Wipro',x:'NSE'},{k:'NSE_EQ|INE237A01036',s:'KOTAKBANK',n:'Kotak Bank',x:'NSE'},{k:'NSE_EQ|INE296A01032',s:'BAJFINANCE',n:'Bajaj Finance',x:'NSE'},{k:'NSE_EQ|INE585B01010',s:'MARUTI',n:'Maruti Suzuki',x:'NSE'},{k:'NSE_EQ|INE155A01022',s:'TMPV',n:'Tata Motors Passenger Vehicles',x:'NSE'},{k:'NSE_EQ|INE1TAE01010',s:'TMCV',n:'Tata Motors Commercial Vehicles',x:'NSE'},{k:'NSE_EQ|INE238A01034',s:'AXISBANK',n:'Axis Bank',x:'NSE'},{k:'NSE_EQ|INE423A01024',s:'ADANIENT',n:'Adani Ent',x:'NSE'},{k:'NSE_EQ|INE021A01026',s:'ASIANPAINT',n:'Asian Paints',x:'NSE'},{k:'NSE_EQ|INE044A01036',s:'SUNPHARMA',n:'Sun Pharma',x:'NSE'},{k:'NSE_EQ|INE081A01020',s:'TATASTEEL',n:'Tata Steel',x:'NSE'},{k:'NSE_EQ|INE733E01010',s:'NTPC',n:'NTPC',x:'NSE'},{k:'NSE_EQ|INE213A01029',s:'ONGC',n:'ONGC',x:'NSE'},{k:'NSE_EQ|INE860A01027',s:'HCLTECH',n:'HCL Tech',x:'NSE'},{k:'NSE_EQ|INE018A01030',s:'LT',n:'Larsen & Toubro',x:'NSE'},{k:'NSE_EQ|INE089A01031',s:'DRREDDY',n:'Dr Reddys',x:'NSE'},{k:'NSE_EQ|INE019A01038',s:'JSWSTEEL',n:'JSW Steel',x:'NSE'},{k:'NSE_EQ|INE918I01026',s:'BAJAJFINSV',n:'Bajaj Finserv',x:'NSE'},{k:'NSE_EQ|INE669C01036',s:'TECHM',n:'Tech Mahindra',x:'NSE'},{k:'NSE_EQ|INE059A01026',s:'CIPLA',n:'Cipla',x:'NSE'},{k:'NSE_EQ|INE280A01028',s:'TITAN',n:'Titan',x:'NSE'},{k:'NSE_EQ|INE095A01012',s:'INDUSINDBK',n:'IndusInd Bank',x:'NSE'},{k:'NSE_EQ|INE437A01024',s:'APOLLOHOSP',n:'Apollo Hospitals',x:'NSE'},{k:'NSE_EQ|INE742F01042',s:'ADANIPORTS',n:'Adani Ports',x:'NSE'},{k:'NSE_EQ|INE481G01011',s:'ULTRACEMCO',n:'UltraTech Cement',x:'NSE'},{k:'NSE_EQ|INE038A01020',s:'HINDALCO',n:'Hindalco',x:'NSE'},{k:'NSE_EQ|INE029A01011',s:'BPCL',n:'Bharat Petroleum',x:'NSE'},{k:'NSE_EQ|INE263A01024',s:'BEL',n:'Bharat Electronics',x:'NSE'},{k:'NSE_EQ|INE752E01010',s:'POWERGRID',n:'Power Grid',x:'NSE'},{k:'NSE_EQ|INE239A01024',s:'NESTLEIND',n:'Nestle India',x:'NSE'},{k:'NSE_EQ|INE066A01021',s:'EICHERMOT',n:'Eicher Motors',x:'NSE'},{k:'NSE_EQ|INE917I01010',s:'BAJAJ-AUTO',n:'Bajaj Auto',x:'NSE'},{k:'NSE_INDEX|Nifty 50',s:'NIFTY 50',n:'Nifty 50 Index',x:'IDX'},{k:'NSE_INDEX|Nifty Bank',s:'BANKNIFTY',n:'Bank Nifty',x:'IDX'},{k:'NSE_INDEX|Nifty Fin Service',s:'FINNIFTY',n:'Nifty Financial Services',x:'IDX'},{k:'NSE_INDEX|NIFTY MID SELECT',s:'MIDCPNIFTY',n:'Nifty Midcap Select',x:'IDX'},{k:'NSE_INDEX|Nifty IT',s:'NIFTYIT',n:'Nifty IT',x:'IDX'},{k:'NSE_INDEX|Nifty Next 50',s:'NIFTYNXT50',n:'Nifty Next 50',x:'IDX'},{k:'NSE_INDEX|Nifty Midcap 50',s:'NIFTYMID50',n:'Nifty Midcap',x:'IDX'},{k:'NSE_INDEX|India VIX',s:'INDIAVIX',n:'India VIX',x:'IDX'},{k:'BSE_INDEX|SENSEX',s:'SENSEX',n:'BSE Sensex',x:'IDX'},];
 const TFS=[{id:'minutes/1',lb:'1m',unit:'minutes',iv:1},{id:'minutes/3',lb:'3m',unit:'minutes',iv:3},{id:'minutes/5',lb:'5m',unit:'minutes',iv:5},{id:'minutes/10',lb:'10m',unit:'minutes',iv:10},{id:'minutes/15',lb:'15m',unit:'minutes',iv:15},{id:'minutes/30',lb:'30m',unit:'minutes',iv:30},{id:'minutes/60',lb:'60m',unit:'minutes',iv:60},{id:'hours/1',lb:'1H',unit:'hours',iv:1},{id:'hours/2',lb:'2H',unit:'hours',iv:2},{id:'hours/4',lb:'4H',unit:'hours',iv:4},{id:'days/1',lb:'D',unit:'days',iv:1},{id:'weeks/1',lb:'W',unit:'weeks',iv:1},{id:'months/1',lb:'M',unit:'months',iv:1},];
 const API_BASE='https://api.upstox.com';const API_HFT='https://api-hft.upstox.com';
-const END={AUTH_DIALOG:'/v2/login/authorization/dialog',TOKEN:'/v2/login/authorization/token',PROFILE:{base:API_BASE,path:'/v2/user/profile'},FUNDS_V3:{base:API_BASE,path:'/v3/user/get-funds-and-margin',headers:{'Api-Version':'3.0'}},ORDER_PLACE:{base:API_HFT,path:'/v3/order/place'},ORDER_MODIFY:{base:API_HFT,path:'/v3/order/modify'},ORDER_CANCEL:{base:API_HFT,path:'/v3/order/cancel'},ORDER_BOOK:{base:API_BASE,path:'/v2/order/retrieve-all'},ORDER_HISTORY:{base:API_BASE,path:'/v2/order/history'},POSITIONS:{base:API_BASE,path:'/v2/portfolio/short-term-positions'},HOLDINGS:{base:API_BASE,path:'/v2/portfolio/long-term-holdings'},GTT_PLACE:{base:API_BASE,path:'/v3/order/gtt/place'},GTT_LIST:{base:API_BASE,path:'/v3/order/gtt'},GTT_CANCEL:{base:API_BASE,path:'/v3/order/gtt/cancel'},QUOTES_V3:{base:API_BASE,path:'/v2/market-quote/quotes'},LTP_V3:{base:API_BASE,path:'/v3/market-quote/ltp'},OPT_CHAIN:{base:API_BASE,path:'/v2/option/chain'},OPT_CONTRACT:{base:API_BASE,path:'/v2/option/contract'},INSTRUMENT_SEARCH:{base:API_BASE,path:'/v2/instruments/search'},HIST:'/v3/historical-candle',HIST_INTRA:'/v3/historical-candle/intraday',WS_AUTH_V3:{base:API_BASE,path:'/v3/feed/market-data-feed/authorize'},PORTFOLIO_WS_AUTH:{base:API_BASE,path:'/v2/feed/portfolio-stream-feed/authorize'},PNL_META:{base:API_BASE,path:'/v2/trade/profit-loss/metadata'},PNL_DATA:{base:API_BASE,path:'/v2/trade/profit-loss/data'},NEWS:{base:API_BASE,path:'/v2/news'},MARGIN:{base:API_BASE,path:'/v2/charges/margin'},BROKERAGE:{base:API_BASE,path:'/v2/charges/brokerage'}};
-const $={tok:'',prof:null,ords:[],oM:{},pos:[],hld:[],wl:[],cd:[],ind:{sma:0,ema:0,bb:0,rsi:0,macd:0,vol:0,vwap:0,st:0,sr:0},chartUseLiveCandle:true,oSide:'BUY',ws:null,lq:{},oTab:'open',cTF:'days/1',cKey:'',cSym:'',ddSel:{},poll:null};
+const END={AUTH_DIALOG:'/v2/login/authorization/dialog',TOKEN:'/v2/login/authorization/token',PROFILE:{base:API_BASE,path:'/v2/user/profile'},FUNDS_V3:{base:API_BASE,path:'/v3/user/get-funds-and-margin',headers:{'Api-Version':'3.0'}},ORDER_PLACE:{base:API_HFT,path:'/v3/order/place'},ORDER_MODIFY:{base:API_HFT,path:'/v3/order/modify'},ORDER_CANCEL:{base:API_HFT,path:'/v3/order/cancel'},ORDER_BOOK:{base:API_BASE,path:'/v2/order/retrieve-all'},ORDER_HISTORY:{base:API_BASE,path:'/v2/order/history'},POSITIONS:{base:API_BASE,path:'/v2/portfolio/short-term-positions'},HOLDINGS:{base:API_BASE,path:'/v2/portfolio/long-term-holdings'},GTT_PLACE:{base:API_BASE,path:'/v3/order/gtt/place'},GTT_LIST:{base:API_BASE,path:'/v3/order/gtt'},GTT_CANCEL:{base:API_BASE,path:'/v3/order/gtt/cancel'},TRADES_DAY:{base:API_BASE,path:'/v2/order/trades/get-trades-for-day'},ORDER_CANCEL_MULTI:{base:API_BASE,path:'/v2/order/multi/cancel'},POSITIONS_EXIT:{base:API_BASE,path:'/v2/order/positions/exit'},LOGOUT:{base:API_BASE,path:'/v2/logout'},QUOTES_V3:{base:API_BASE,path:'/v3/market-quote/quotes'},LTP_V3:{base:API_BASE,path:'/v3/market-quote/ltp'},OPT_CHAIN:{base:API_BASE,path:'/v2/option/chain'},OPT_CONTRACT:{base:API_BASE,path:'/v2/option/contract'},INSTRUMENT_SEARCH:{base:API_BASE,path:'/v2/instruments/search'},HIST:'/v3/historical-candle',HIST_INTRA:'/v3/historical-candle/intraday',WS_AUTH_V3:{base:API_BASE,path:'/v3/feed/market-data-feed/authorize'},PORTFOLIO_WS_AUTH:{base:API_BASE,path:'/v2/feed/portfolio-stream-feed/authorize'},PNL_META:{base:API_BASE,path:'/v2/trade/profit-loss/metadata'},PNL_DATA:{base:API_BASE,path:'/v2/trade/profit-loss/data'},NEWS:{base:API_BASE,path:'/v2/news'},MARGIN:{base:API_BASE,path:'/v2/charges/margin'},BROKERAGE:{base:API_BASE,path:'/v2/charges/brokerage'}};
+const $={tok:'',atok:'',ro:false,prof:null,ords:[],oM:{},pos:[],hld:[],wl:[],cd:[],ind:{sma:0,ema:0,bb:0,rsi:0,macd:0,vol:0,vwap:0,st:0,sr:0},chartUseLiveCandle:true,oSide:'BUY',ws:null,lq:{},oTab:'open',cTF:'days/1',cKey:'',cSym:'',ddSel:{},poll:null};
 // OC WS STATE
 const OC={chain:[],filtered:[],live:{},ws:null,root:null,Feed:null,spot:0,spotCp:0,atm:0,keys:[],map:null,connected:false,underKey:''};
 
@@ -1695,10 +1710,16 @@ function isOp(o){
   return true;
 }
 async function rawUpstoxFetch(ep,{method='GET',body=null,query='',headersAdd={}}={}){
-  if(!$.tok) throw new Error('No access token');
+  /* AUDIT-API (2026-09-10): token picker — the 1-year read-only Analytics token
+     serves market-data GETs (quotes/chain/search/history/news/market-WS auth);
+     trading + portfolio paths still require the daily OAuth token. */
+  const MD_PATHS=['/v2/market-quote/quotes','/v3/market-quote/ltp','/v3/market-quote/option-greek','/v2/option/chain','/v2/option/contract','/v2/instruments/search','/v3/historical-candle','/v3/historical-candle/intraday','/v2/news','/v3/feed/market-data-feed/authorize'];
+  const isMD=MD_PATHS.includes(ep.path);
+  const bearer=isMD?($.tok||$.atok):$.tok;
+  if(!bearer) throw new Error(isMD?'No access token — paste your daily token, or connect the 1-year Analytics token (read-only market data)':'No access token — the daily login token is required for trading and portfolio APIs');
   const base=ep.base||API_BASE;
   const url=`${base}${ep.path}${query||''}`;
-  const headers={'Authorization':`Bearer ${$.tok}`,'Accept':'application/json',...(ep.headers||{}),...headersAdd};
+  const headers={'Authorization':`Bearer ${bearer}`,'Accept':'application/json',...(ep.headers||{}),...headersAdd};
   const upper=String(method).toUpperCase();
   const controller=typeof AbortController!=='undefined'?new AbortController():null;
   const timeout=controller?setTimeout(()=>controller.abort(),15000):null;
@@ -1862,7 +1883,7 @@ function proBusyWatchdog(){
 }
 setInterval(proBusyWatchdog,5000);
 async function upstoxFetch(ep,options={}){
-  if(!$.tok) throw new Error('No access token — log in first');
+  if(!$.tok&&!$.atok) throw new Error('No access token — log in first');
   const method=String(options.method||'GET').toUpperCase(),force=!!options._force,fast=!!options._fast,key=`${method}|${ep.base||API_BASE}${ep.path}${options.query||''}`,ttl=method==='GET'?proTTL(ep):0,now=Date.now(),cached=PRO_HUB.cache.get(key);if(!force&&ttl&&cached&&now-cached.at<ttl){PRO_HUB.hits++;proHubStatus();return cached.data;}if(!force&&method==='GET'&&PRO_HUB.inflight.has(key)){PRO_HUB.hits++;return PRO_HUB.inflight.get(key);}const maxAttempts=fast?1:3;const task=proSchedule(async()=>{let error;for(let attempt=0;attempt<maxAttempts;attempt++){proHubProgress();try{PRO_HUB.requests++;const data=await rawUpstoxFetch(ep,options);PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;if(ttl&&$.tok)PRO_HUB.cache.set(key,{at:Date.now(),data});if(method!=='GET'&&!options._readonly)proInvalidate();proHubStatus();return data;}catch(e){error=e;const retry=/429|network|cors|http 5|rate|too many|timeout/i.test(e.message);if(!retry||attempt===maxAttempts-1)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)+Math.random()*180));}}if(!/no access token/i.test(error?.message||'')){PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');}throw error;});if(method==='GET')PRO_HUB.inflight.set(key,task);try{return await task;}finally{PRO_HUB.inflight.delete(key);}
 }
 
@@ -2356,16 +2377,30 @@ async function aExch(){
 }
 function aTok(){
   const t=document.getElementById('aT')?.value.trim()||'';
-  if(!t) return ts('Enter an access token','e');
-  if(t.length<20)return ts('That does not look like a valid access token','w');
-  $.tok=t;
-  try{sessionStorage.setItem('u_tok',t);}catch(e){}
-  const aT=document.getElementById('aT'); if(aT)aT.value='';
+  const a=document.getElementById('aN')?.value.trim()||'';
+  if(!t&&!a) return ts('Enter an access or analytics token','e');
+  if(t){
+    if(t.length<20)return ts('That does not look like a valid access token','w');
+    $.tok=t;$.atok='';$.ro=false;
+    try{sessionStorage.setItem('u_tok',t);sessionStorage.removeItem('u_atok');}catch(e){}
+    const aT=document.getElementById('aT'); if(aT)aT.value='';
+    init();return;
+  }
+  /* AUDIT-API: Analytics token — 1-year validity, read-only (market data, news,
+     charts, option chain, market WS). Trading/portfolio APIs stay locked. */
+  if(a.length<20)return ts('That does not look like a valid analytics token','w');
+  $.atok=a;$.tok='';$.ro=true;
+  try{sessionStorage.setItem('u_atok',a);sessionStorage.removeItem('u_tok');}catch(e){}
+  const aN=document.getElementById('aN'); if(aN)aN.value='';
   init();
 }
 function logout(){
-  $.tok='';
+  /* AUDIT-API: invalidate the token server-side too (DELETE /v2/logout),
+     so a pasted/leaked token is dead even if this tab is cloned. Fire-and-forget. */
+  try{const t=$.tok;if(t)fetch(API_BASE+END.LOGOUT.path,{method:'DELETE',headers:{Authorization:'Bearer '+t},keepalive:true}).catch(()=>{});}catch(e){}
+  $.tok='';$.atok='';$.ro=false;
   sessionStorage.removeItem('u_tok');
+  sessionStorage.removeItem('u_atok');
   sessionStorage.removeItem('u_as');
   localStorage.removeItem('u_tok');
   /* Stop every background feeder so a previous session cannot keep polling. */
@@ -2413,6 +2448,14 @@ async function init(){
     buildTF();
     if(!$.searchReady){setupGlobalSearch();$.searchReady=true;}
     if(!OC.Feed && !ocInitProto()) throw new Error('Protobuf decoder failed to initialize');
+    /* AUDIT-API: read-only Analytics-token session — market data works,
+       trading/portfolio init is skipped entirely. */
+    $.ro=!$.tok&&!!$.atok;
+    if($.ro){
+      ldWD();
+      initProTerminal();
+      ts('Ready — read-only market data (Analytics token, 1-yr). Paste your daily token anytime to enable trading.','i');
+    }else{
     // On Android, don't block 10s on profile+dash — try with fast mode and short timeout, show Ready quickly
     const profilePromise=ldPr().catch(e=>{console.warn('Profile init',e.message);});
     const wdPromise=(async()=>{try{ldWD();}catch(e){}})();
@@ -2428,6 +2471,7 @@ async function init(){
     }
     initProTerminal();
     ts('Ready','s');
+    }
     if(isAndroid) setTimeout(()=>{ ldD().catch(()=>{}); }, 1500);
     // FIX #45: ensure instrument master download available on startup
     setTimeout(()=>{ ensureInstrumentMasterOnStartup().catch(()=>{}); }, isAndroid?3000:1200);
@@ -3172,6 +3216,9 @@ async function plO(){
   if(['SL','SL-M'].includes(orderType)&&!priceOnTick(trigger,tick))return ts(`Trigger must follow tick size ₹${tick}`,'e');
   const willSlice=!!sel.freeze&&qty>sel.freeze;
   if(willSlice&&!confirm(`Quantity ${qty} exceeds freeze limit ${sel.freeze}. Place as sliced child orders?`))return;
+  /* AUDIT-API (F-1): Upstox V3 docs state commodity quantity is in LOTS while
+     F&O/equity is in UNITS — surface an explicit check until verified in sandbox. */
+  if(/^MCX_/i.test(String(sel.k||''))&&!confirm(`MCX check: Upstox V3 docs say commodity quantity is counted in LOTS. Is ${qty} your intended LOT count (not units) for ${sel.s}?`))return;
   const side=$.oSide==='SELL'?'SELL':'BUY';
   if(!confirm(`${side} ${qty} ${sel.s||sel.k} · ${orderType}${orderType==='MARKET'||orderType==='SL-M'?'':` @ ${price}`}${['SL','SL-M'].includes(orderType)?` trigger ${trigger}`:''}?`))return;
   const btn=document.getElementById('oBn');if(!btn||btn.disabled||$.orderBusy)return;btn.disabled=true;$.orderBusy=true;
@@ -3185,7 +3232,8 @@ async function plO(){
       is_amo:document.getElementById('oAm')?.value==='true',slice:willSlice,market_protection:-1
     }});
     const ids=d.data?.order_ids||[d.data?.order_id].filter(Boolean);
-    ts(`Order placed${ids.length?': '+ids.join(', '):''}${willSlice?' (sliced)':''}`,'s');
+    const lat=d.metadata?.latency;
+    ts(`Order placed${ids.length?': '+ids.join(', '):''}${willSlice?' (sliced)':''}${lat!=null?` · broker ${lat} ms`:''}`,'s');
     proInvalidate('/order/');setTimeout(ldO,900);
   }catch(e){ts('Order: '+e.message,'e');}
   finally{btn.disabled=false;$.orderBusy=false;}
@@ -3348,14 +3396,35 @@ async function crG(){
   if(sel.freeze&&qty>sel.freeze)return ts(`Quantity exceeds freeze limit ${sel.freeze}`,'e');
   if(!Number.isFinite(trigger)||trigger<=0)return ts('Enter a valid trigger price','e');
   if(!priceOnTick(trigger,tick))return ts(`Trigger must follow tick size ₹${tick}`,'e');
+  /* AUDIT-API (2026-09-10): bracket GTT — optional TARGET + STOPLOSS legs
+     (docs: /v3/order/gtt/place, type MULTIPLE, TARGET/STOPLOSS trigger_type IMMEDIATE,
+     optional trailing_gap on the STOPLOSS leg). */
+  const side=String(document.getElementById('gSd')?.value||'BUY');
+  const target=Number(document.getElementById('gTg')?.value||0);
+  const slp=Number(document.getElementById('gSl')?.value||0);
+  const tsl=Number(document.getElementById('gTsl')?.value||0);
+  let gttType='SINGLE',rules=[{strategy:'ENTRY',trigger_type:document.getElementById('gTt')?.value||'ABOVE',trigger_price:trigger,market_protection:-1}];
+  if(target>0||slp>0){
+    if(!Number.isFinite(target)||target<=0||!Number.isFinite(slp)||slp<=0)return ts('Bracket GTT needs BOTH target and stop-loss prices','e');
+    if(!priceOnTick(target,tick))return ts(`Target must follow tick size ₹${tick}`,'e');
+    if(!priceOnTick(slp,tick))return ts(`Stop-loss must follow tick size ₹${tick}`,'e');
+    if(side==='BUY'&&!(target>trigger&&slp<trigger))return ts('BUY bracket: target must be ABOVE entry trigger, stop-loss BELOW it','e');
+    if(side==='SELL'&&!(target<trigger&&slp>trigger))return ts('SELL bracket: target must be BELOW entry trigger, stop-loss ABOVE it','e');
+    if(tsl){
+      if(tsl<=0)return ts('Trailing gap must be positive','e');
+      if(!priceOnTick(tsl,tick))return ts(`Trailing gap must follow tick size ₹${tick}`,'e');
+      rules[2]={strategy:'STOPLOSS',trigger_type:'IMMEDIATE',trigger_price:slp,trailing_gap:tsl,market_protection:-1};
+    }else rules[2]={strategy:'STOPLOSS',trigger_type:'IMMEDIATE',trigger_price:slp,market_protection:-1};
+    rules.splice(1,0,{strategy:'TARGET',trigger_type:'IMMEDIATE',trigger_price:target,market_protection:-1});
+    gttType='MULTIPLE';
+  }
   if($.gttBusy)return;$.gttBusy=true;
   try{
     await upstoxFetch(END.GTT_PLACE,{method:'POST',body:{
-      type:'SINGLE',quantity:qty,product,instrument_token:sel.k,
-      transaction_type:document.getElementById('gSd')?.value||'BUY',
-      rules:[{strategy:'ENTRY',trigger_type:document.getElementById('gTt')?.value||'ABOVE',trigger_price:trigger,market_protection:-1}]
+      type:gttType,quantity:qty,product,instrument_token:sel.k,
+      transaction_type:side,rules
     }});
-    ts(`GTT created (${product})`,'s');proInvalidate('/order/gtt');ldG();
+    ts(`GTT created (${gttType==='MULTIPLE'?`bracket ENTRY+TARGET+STOPLOSS, ${product}`:product})`,'s');proInvalidate('/order/gtt');ldG();
   }catch(e){ts('GTT: '+e.message,'e');}
   finally{$.gttBusy=false;}
 }
@@ -3446,7 +3515,7 @@ function wlSetSort(v){$.wSort=v||'default';rnW();}
 function rmWKey(k){const i=($.wl||[]).findIndex(w=>w.k===k);if(i<0)return;const [old]=$.wl.splice(i,1);persistWatchlist();rnW();if(old&&!wsKeyStillNeeded(old.k))wsSend('unsub',[old.k],'full');}
 
 async function ldWQ(){
-  if(!$.tok)return;
+  if(!$.tok&&!$.atok)return;
   $.wl=sanitizeWatchlist($.wl,{fallback:false,save:true});if(!$.wl.length){rnW();return;}const keys=$.wl.map(w=>w.k).filter(validInstrumentKey),apply=data=>Object.values(data||{}).forEach(v=>{const key=v.instrument_token;if(!validInstrumentKey(key))return;const last=toNum(v.last_price,NaN),cp=toNum(v.cp,NaN);$.lq[key]={...$.lq[key],last_price:last,net_change:Number.isFinite(last)&&Number.isFinite(cp)?last-cp:toNum($.lq[key]?.net_change)};});
   try{const d=await upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(keys.join(','))}`});apply(d.data);rnW();}
   catch(e){if(!/invalid|instrument_key|symbol/i.test(e.message)){ts('Watchlist quotes: '+e.message,'w');return;}const results=await Promise.allSettled(keys.map(key=>upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(key)}`,_force:true}))),invalid=[];results.forEach((r,i)=>{if(r.status==='fulfilled')apply(r.value.data);else if(/invalid|instrument_key|symbol/i.test(r.reason?.message||''))invalid.push(keys[i]);});if(invalid.length){$.wl=$.wl.filter(w=>!invalid.includes(w.k));invalid.forEach(k=>delete $.lq[k]);persistWatchlist();ts(`Removed ${invalid.length} invalid or expired watchlist item${invalid.length>1?'s':''}`,'w');}rnW();}
@@ -3490,7 +3559,7 @@ function watchFeedObject(obj){
   if(watchChanged&&!$.watchRenderQueued){$.watchRenderQueued=true;setTimeout(()=>{$.watchRenderQueued=false;rnW();},ocIsMobile()?300:120);}
 }
 async function wsC(internal=false){
-  if(!$.tok)return;
+  if(!$.tok&&!$.atok)return;
   try{
     if($.ws?.readyState===WebSocket.OPEN){wsSend('sub',chartSharedKeys(),'full');if($.chartLiveEnabled)chartSetLiveState('on','Live');if(!internal)ts('Market feed already connected','i');return;}
     if($.ws?.readyState===WebSocket.CONNECTING||$.wsConnecting)return;if(!OC.Feed&&!ocInitProto())throw new Error('Protobuf decoder unavailable');clearTimeout($.wsReconnectTimer);$.wsReconnectTimer=null;try{if(typeof proInvalidate==='function')proInvalidate('/feed/market-data-feed/authorize');}catch(e){}$.wsConnecting=true;const d=await upstoxFetch(END.WS_AUTH_V3,{_force:true}),url=d.data?.authorized_redirect_uri||d.data?.authorizedRedirectUri;if(!url)throw new Error('No WebSocket URL returned');
@@ -4445,7 +4514,7 @@ function proSyncTick(){
   const now=Date.now(),page=document.querySelector('.pg.on')?.id?.replace('pg-','');$.proSyncAt=$.proSyncAt||{};const run=(name,ms,fn)=>{if(!$.proSyncAt[name]||now-$.proSyncAt[name]>=ms){$.proSyncAt[name]=now;Promise.resolve(fn()).catch(()=>{});}};run('markets',$.ws?.readyState===WebSocket.OPEN?300000:15000,loadProMarkets);if(page==='dash')run('dash',10000,ldD);if(page==='orders')run('orders',5000,ldO);if(page==='pos')run('pos',5000,ldP);if(page==='hold')run('hold',30000,ldH);if(page==='funds')run('funds',15000,ldFn);if(page==='gtt')run('gtt',15000,ldG);if(page==='watch')run('watch',8000,ldWQ);const sync=document.getElementById('psSync');if(sync)sync.textContent=$.ws?.readyState===WebSocket.OPEN?`Live WS • REST ${PRO_HUB.lastSuccess?new Date(PRO_HUB.lastSuccess).toLocaleTimeString():'idle'}`:`REST sync ${PRO_HUB.lastSuccess?new Date(PRO_HUB.lastSuccess).toLocaleTimeString():'idle'}`;}
 function proPortfolioStatus(on,text){const label=document.getElementById('psPortfolio'),dot=document.getElementById('psPortDot');if(label)label.textContent=text||(on?'Live':'Offline');if(dot)dot.className=`status-dot ${on?'on':''}`;if(typeof wsCountUpdate==='function')wsCountUpdate();}
 function handlePortfolioUpdate(update){if(!update||!update.update_type)return;const type=update.update_type;if(type==='order'){const i=($.ords||[]).findIndex(x=>x.order_id===update.order_id);if(i>=0)$.ords[i]={...$.ords[i],...update};else $.ords.unshift(update);if(update.order_id)$.oM[update.order_id]=$.ords[i>=0?i:0];proInvalidate('/order/');if(document.getElementById('pg-orders')?.classList.contains('on'))rnO();const open=$.ords.filter(isOp),badge=document.getElementById('oBd');if(badge){badge.style.display=open.length?'inline':'none';badge.textContent=open.length;}}else if(type==='position'){proInvalidate('/portfolio/short-term-positions');setTimeout(()=>{if(document.getElementById('pg-pos')?.classList.contains('on')||document.getElementById('pg-dash')?.classList.contains('on'))ldP().then(()=>renderProDashboard());},250);}else if(type==='holding'){proInvalidate('/portfolio/long-term-holdings');setTimeout(()=>{if(document.getElementById('pg-hold')?.classList.contains('on')||document.getElementById('pg-dash')?.classList.contains('on'))ldH().then(()=>renderProDashboard());},300);}else if(type==='gtt_order'){proInvalidate('/order/gtt');if(document.getElementById('pg-gtt')?.classList.contains('on'))setTimeout(ldG,250);}if(document.getElementById('pg-dash')?.classList.contains('on'))renderProDashboard();}
-async function connectPortfolioStream(){if(!$.tok||$.pws?.readyState===WebSocket.OPEN||$.pws?.readyState===WebSocket.CONNECTING||$.pwsConnecting)return;clearTimeout($.pwsReconnectTimer);try{$.pwsConnecting=true;proPortfolioStatus(false,'Connecting');const query='?update_types=order%2Cgtt_order%2Cposition%2Cholding',d=await upstoxFetch(END.PORTFOLIO_WS_AUTH,{query,_force:true}),url=d.data?.authorized_redirect_uri||d.data?.authorizedRedirectUri;if(!url)throw new Error('No portfolio stream URL');const ws=new WebSocket(url);$.pws=ws;$.pwsConnecting=false;ws.onopen=()=>{if($.pws!==ws)return;$.pwsAttempts=0;proPortfolioStatus(true,'Live');};ws.onmessage=async e=>{if($.pws!==ws)return;try{let raw=e.data;if(raw instanceof Blob)raw=await raw.text();else if(raw instanceof ArrayBuffer)raw=new TextDecoder().decode(new Uint8Array(raw));const data=typeof raw==='string'?JSON.parse(raw):raw;handlePortfolioUpdate(data);}catch(err){console.warn('Portfolio stream message',err);}};ws.onclose=()=>{if($.pws!==ws)return;$.pws=null;proPortfolioStatus(false,'Reconnecting');const attempt=($.pwsAttempts||0)+1;$.pwsAttempts=attempt;if(attempt<=6)$.pwsReconnectTimer=setTimeout(connectPortfolioStream,Math.min(60000,2000*Math.pow(2,Math.min(attempt,5))));else proPortfolioStatus(false,'Paused');};ws.onerror=()=>{if($.pws===ws)proPortfolioStatus(false,'Feed error');};}catch(e){$.pwsConnecting=false;console.warn('Portfolio stream',e.message);const attempt=($.pwsAttempts||0)+1;$.pwsAttempts=attempt;proPortfolioStatus(false,attempt<=6?'Unavailable • retrying':'Paused');if(attempt<=6)$.pwsReconnectTimer=setTimeout(connectPortfolioStream,Math.min(60000,3000*Math.pow(2,Math.min(attempt,4))));}}
+async function connectPortfolioStream(){if(($.atok&&!$.tok)||!$.tok||$.pws?.readyState===WebSocket.OPEN||$.pws?.readyState===WebSocket.CONNECTING||$.pwsConnecting)return;clearTimeout($.pwsReconnectTimer);try{$.pwsConnecting=true;proPortfolioStatus(false,'Connecting');const query='?update_types=order%2Cgtt_order%2Cposition%2Cholding',d=await upstoxFetch(END.PORTFOLIO_WS_AUTH,{query,_force:true}),url=d.data?.authorized_redirect_uri||d.data?.authorizedRedirectUri;if(!url)throw new Error('No portfolio stream URL');const ws=new WebSocket(url);$.pws=ws;$.pwsConnecting=false;ws.onopen=()=>{if($.pws!==ws)return;$.pwsAttempts=0;proPortfolioStatus(true,'Live');};ws.onmessage=async e=>{if($.pws!==ws)return;try{let raw=e.data;if(raw instanceof Blob)raw=await raw.text();else if(raw instanceof ArrayBuffer)raw=new TextDecoder().decode(new Uint8Array(raw));const data=typeof raw==='string'?JSON.parse(raw):raw;handlePortfolioUpdate(data);}catch(err){console.warn('Portfolio stream message',err);}};ws.onclose=()=>{if($.pws!==ws)return;$.pws=null;proPortfolioStatus(false,'Reconnecting');const attempt=($.pwsAttempts||0)+1;$.pwsAttempts=attempt;if(attempt<=6)$.pwsReconnectTimer=setTimeout(connectPortfolioStream,Math.min(60000,2000*Math.pow(2,Math.min(attempt,5))));else proPortfolioStatus(false,'Paused');};ws.onerror=()=>{if($.pws===ws)proPortfolioStatus(false,'Feed error');};}catch(e){$.pwsConnecting=false;console.warn('Portfolio stream',e.message);const attempt=($.pwsAttempts||0)+1;$.pwsAttempts=attempt;proPortfolioStatus(false,attempt<=6?'Unavailable • retrying':'Paused');if(attempt<=6)$.pwsReconnectTimer=setTimeout(connectPortfolioStream,Math.min(60000,3000*Math.pow(2,Math.min(attempt,4))));}}
 function startProSync(){clearInterval($.proSyncTimer);const isAndroid=/Android/i.test(navigator.userAgent||'');$.proSyncTimer=setInterval(proSyncTick, isAndroid?10000:5000);proSyncTick();connectPortfolioStream();}
 function initProTerminal(){document.body.classList.add('pro-tv');try{if(localStorage.getItem('pro_sidebar_mini')==='1')document.body.classList.add('sidebar-mini');const saved=localStorage.getItem('pro_inspector_open');if(saved==='1')document.body.classList.add('pro-inspector-open');}catch{}document.querySelectorAll('.si').forEach(x=>x.title=x.textContent.trim());renderProMarketPulse();loadProMarkets();startProSync();
  /* AUDIT FIX: logout() stops the fast REST refresher (fastStop), but nothing
@@ -4455,7 +4524,7 @@ function initProTerminal(){document.body.classList.add('pro-tv');try{if(localSto
  if(typeof fastStart==='function')fastStart();
  if(!$.ws||$.ws.readyState>1)wsC(true);resolveCrudeFuture();}
 
-function nav(p){const page=document.getElementById(`pg-${p}`),item=document.querySelector(`.si[data-p="${p}"]`);if(!page||!item)return;document.querySelectorAll('.pg').forEach(x=>x.classList.remove('on'));document.querySelectorAll('.si').forEach(x=>x.classList.remove('on'));page.classList.add('on');item.classList.add('on');if(p==='oc'&&window.innerWidth<1800&&document.body.classList.contains('pro-inspector-open'))proToggleInspector(false);({dash:ldD,orders:ldO,pos:ldP,hold:ldH,funds:ldFn,gtt:ldG,watch:ldWQ,pnl:ldPl})[p]?.();if(p==='chart'){if($.cd?.length){setTimeout(()=>{drawC();anlC();chartUpdateMeta();},30);}else if($.cKey)ldCh();}document.getElementById('SD').classList.remove('open');if(p==='oc')ocAutoInit();}
+function nav(p){const page=document.getElementById(`pg-${p}`),item=document.querySelector(`.si[data-p="${p}"]`);if(!page||!item)return;document.querySelectorAll('.pg').forEach(x=>x.classList.remove('on'));document.querySelectorAll('.si').forEach(x=>x.classList.remove('on'));page.classList.add('on');item.classList.add('on');if(p==='oc'&&window.innerWidth<1800&&document.body.classList.contains('pro-inspector-open'))proToggleInspector(false);({dash:ldD,orders:ldO,pos:ldP,hold:ldH,funds:ldFn,gtt:ldG,watch:ldWQ,pnl:ldPl,trades:ldT})[p]?.();if(p==='chart'){if($.cd?.length){setTimeout(()=>{drawC();anlC();chartUpdateMeta();},30);}else if($.cKey)ldCh();}document.getElementById('SD').classList.remove('open');if(p==='oc')ocAutoInit();}
 
 
 function emptyTableRow(cols,icon,title,description){return `<tr><td colspan="${cols}" class="empty-cell"><div class="empty-state"><div class="empty-icon">${icon}</div><b>${escapeHtml(title)}</b><span>${escapeHtml(description)}</span></div></td></tr>`;}
@@ -4488,6 +4557,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   const secret=document.getElementById('aS');if(secret)secret.value='';buildFinancialYears();
   const expiry=document.getElementById('ocE');if(expiry)expiry.value='';
   const token=sessionStorage.getItem('u_tok');if(token&&!$.tok){$.tok=token;init();}
+  else{const atok=sessionStorage.getItem('u_atok');if(atok&&!$.tok&&!$.atok){$.atok=atok;init();}}
 });
 
 /* ================= SECTION 4: runtime error guard ================= */
@@ -6382,7 +6452,7 @@ async function pollTick(){
   }finally{P.busy=false;}
 }
 async function ocStartPoll(){
-  if(!$.tok)return ts('Log in first','w');
+  if(!$.tok&&!$.atok)return ts('Log in first','w');
   ocDisconnect(true);              /* WebSocket off in poll mode */
   OC.polling=true;P.src='v2';P.failStreak=0;P.lastRun=0;
   try{if(!(OC.filtered||[]).length)await ldOC();}catch(e){}
@@ -6513,7 +6583,7 @@ let FAST_MS=Math.max(250,Math.min(10000,Number(localStorage.getItem('pro_fast_ms
 const FAST={timer:null,busy:false,fails:0};
 const wsOpen=()=>{try{return !!($.ws&&$.ws.readyState===WebSocket.OPEN);}catch(e){return false;}};
 async function fastTick(){
-  if(FAST.busy||document.hidden||!$.tok||wsOpen())return;
+  if(FAST.busy||document.hidden||(!$.tok&&!$.atok)||wsOpen())return;
   try{if(typeof PRO_IDLE!=='undefined'&&PRO_IDLE.idle)return;}catch(e){}
   try{if(typeof proCheckIdle==='function'&&proCheckIdle())return;}catch(e){}
   const keys=[...new Set([...PRO_MARKETS.map(x=>x.k),...($.wl||[]).map(w=>w.k)].filter(k=>typeof k==='string'&&k.includes('|')))];
@@ -6551,6 +6621,71 @@ function fastStop(){clearInterval(FAST.timer);FAST.timer=null;}
 function proSetFastMs(ms){ms=Math.max(250,Math.min(10000,Math.round(Number(ms))||1000));FAST_MS=ms;try{localStorage.setItem('pro_fast_ms',String(ms));}catch(e){}fastRestart();ts(`Fast refresh interval set to ${ms}ms`,'i');return ms;};
 function proFastRefresh(on){on?fastStart():fastStop();}
 fastStart();
+
+/* ================= SECTION 27: trade book + bulk risk actions (AUDIT-API 2026-09-10) ================= */
+/* Trade book — today's executed fills. GET /v2/order/trades/get-trades-for-day */
+async function ldT(){
+  if(!$.tok)return;
+  try{
+    const d=await upstoxFetch(END.TRADES_DAY);
+    rnT(Array.isArray(d.data)?d.data:[]);
+  }catch(e){ts('Trades: '+e.message,'e');rnT([]);}
+}
+function rnT(rows){
+  const tb=document.getElementById('tTB');if(!tb)return;
+  rows=rows||[];
+  let buy=0,sell=0;
+  const body=rows.map(t=>{
+    const q=toNum(t.quantity),p=toNum(t.average_price||t.price),v=q*p;
+    const side=String(t.transaction_type||'-').toUpperCase();
+    if(side==='BUY')buy+=v;else if(side==='SELL')sell+=v;
+    const ts_=(t.trade_date||t.exchange_timestamp||'');
+    const time=/^\d{13}$/.test(String(ts_))?new Date(Number(ts_)).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):String(ts_||'-');
+    const oid=String(t.order_id||'');
+    return `<tr><td>${escapeHtml(time)}</td><td><b>${escapeHtml(symbolOf(t)||t.trading_symbol||t.instrument_token||'-')}</b></td><td class="${side==='BUY'?'pp':'pn'}">${escapeHtml(side)}</td><td>${q}</td><td>${fmtP(p)}</td><td>${fmtN(v)}</td><td class="muted-id">${escapeHtml(oid.slice(0,12))}</td></tr>`;
+  }).join('');
+  tb.innerHTML=body||emptyTableRow(7,'🧾','No trades yet','Executed fills for today will appear here.');
+  const c=document.getElementById('tCnt'),b=document.getElementById('tBuy'),s=document.getElementById('tSell');
+  if(c)c.textContent=rows.length;if(b)b.textContent=fmtN(buy);if(s)s.textContent=fmtN(sell);
+}
+/* Bulk cancel of THIS app's open orders — DELETE /v2/order/multi/cancel?tag=uptrade-web
+   (docs: max 10 orders/call; 207 partial-success carries per-order errors[]). */
+async function cancelAllMine(){
+  if(!$.tok)return ts('Log in first','w');
+  const open=($.ords||[]).filter(isOp);
+  if(!open.length)return ts('No open orders to cancel','i');
+  if(!confirm(`Cancel ${open.length} open order(s) tagged uptrade-web?`))return;
+  if(!confirm('CONFIRM: this fires one bulk cancel for all of this app\'s open orders. Proceed?'))return;
+  try{
+    const d=await upstoxFetch(END.ORDER_CANCEL_MULTI,{method:'DELETE',_force:true,query:'?tag='+encodeURIComponent('uptrade-web')});
+    const s=d.summary||{},errs=d.errors||[];
+    ts(`Cancel-all: ${s.success??(d.data?.order_ids||[]).length} cancelled${s.error?`, ${s.error} failed`:''}${errs.length?' — first: '+errs[0].message:''}`,errs.length?'w':'s');
+    proInvalidate('/order/');setTimeout(ldO,800);
+  }catch(e){ts('Cancel-all: '+e.message,'e');}
+}
+/* Bulk square-off of THIS app's positions — POST /v2/order/positions/exit?tag=uptrade-web
+   (docs: MARKET orders w/ MPP; 207 partial-success; tag filter = intraday positions only). */
+async function exitAllMine(){
+  if(!$.tok)return ts('Log in first','w');
+  const open=($.pos||[]).filter(p=>toNum(p.quantity)!==0);
+  if(!open.length)return ts('No open positions to exit','i');
+  if(!confirm(`Square off ${open.length} open position(s) tagged uptrade-web with MARKET orders?`))return;
+  if(!confirm('CONFIRM: exit-all sends real market orders. Proceed?'))return;
+  try{
+    const d=await upstoxFetch(END.POSITIONS_EXIT,{method:'POST',_force:true,_readonly:true,query:'?tag='+encodeURIComponent('uptrade-web')});
+    const s=d.summary||{},errs=d.errors||[];
+    ts(`Exit-all: ${s.success??0}/${s.total??open.length} exited${errs.length?' — first: '+errs[0].message:''}`,errs.length?'w':'s');
+    proInvalidate('/order/');proInvalidate('/positions');setTimeout(ldP,900);
+  }catch(e){ts('Exit-all: '+e.message,'e');}
+}
+/* Header panic: cancel my orders, then square off my positions. */
+async function panicExitAll(){
+  if(!$.tok)return ts('Log in first','w');
+  if(!confirm('🛑 PANIC — cancel ALL open orders tagged uptrade-web AND square off ALL my open positions with market orders?'))return;
+  if(!confirm('This is the last confirmation. Execute panic exit?'))return;
+  await cancelAllMine();
+  await exitAllMine();
+}
 
 /* Deferred boot: render the active-column chips once every definition exists. */
 renderActiveCols();
