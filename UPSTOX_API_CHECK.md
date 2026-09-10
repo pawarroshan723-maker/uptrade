@@ -233,3 +233,52 @@ Priorities: **T0 = foundation/quick wins, T1 = trading power, T2 = analytics, T3
 
 - Live sandbox testing of order placement was **out of scope** (check-only; sandbox tokens are provisioned per-account). F-1 (MCX lots) is a documentation-vs-code conflict to resolve empirically in the Sandbox (T0.2 provides the toggle to do it safely).
 - `index.html` was **not modified** for this report. The only repo changes remain the previously committed audit/README/cleanup work.
+
+---
+
+## 7. Remaining gaps ranked by importance (2026-09-10 re-check)
+
+Post-implementation, the app calls **29 registry paths** + the WS subscribe protocol (plus the instrument-master CDN files). The documented endpoints still unused, ranked for **this app's actual usage profile** (personal NSE F&O / MCX / options-chain terminal with bracket GTTs, OC analytics and algo backtests):
+
+### Tier 1 — most important for you (money protection & daily loop)
+
+| Rank | Endpoint | Why it matters for this app | Effort |
+|---|---|---|---|
+| **1** | `PUT /v3/order/gtt/modify` — body `{type, quantity, rules[], gtt_order_id}` | You can now *create* bracket GTTs but not edit them. Trailing a target/SL means cancel + recreate today — you lose the GTT ID and re-enter the trigger queue. Modify is atomic; the GTT list page already has the row data to prefill an editor. **Doc caveats to encode:** quantity is locked once the GTT is `OPEN`; an `OPEN` GTT's ENTRY leg only accepts `trigger_type: IMMEDIATE`; MULTIPLE = 2–3 rules, no duplicate strategies. | S |
+| **2** | `GET /v2/trade/profit-loss/charges` | Your Trades page and P&L page show gross numbers. This returns the **per-trade charge breakdown** — the net figure that actually hits your account. Direct column add to both pages (reuse the P&L FY pagination pattern). | S |
+| **3** | `POST /v2/user/kill-switch` — body `[{segment, action}]` | The missing half of the Panic button: hard-disable a segment (NSE_FO, MCX_FO…) when you're done for the day. **Must warn in UI:** pending orders auto-cancel, **12-hour cooling** before re-enable, token must be regenerated after toggling. | S |
+| **4** | `GET /v2/market/status/:exchange` → `{status:"NORMAL_OPEN", last_updated, cas_eligible_status:{status,…}}` | One call fixes session logic everywhere: `chartMarketOpen`/`ocMarketOpen` heuristics, `fastTick` polling on holidays, "market closed" toasts — plus a live **CAS (closing-auction) badge** from `cas_eligible_status`. Poll every 5 min; cache; works with the analytics token. | S |
+
+### Tier 2 — decision analytics (all analytics-token friendly, no daily token)
+
+| Rank | Endpoint | Why / where |
+|---|---|---|
+| **5** | `GET /v2/market/max-pain?instrument_key&expiry&date&bucket_interval` → `{max_pain, spot_closing_price, insights[]{max_pain, spot_price, time}}` | Expiry-day staple, computed server-side (no client OI math). OC page footer chart next to the existing PCR block; `insights[]` plots max-pain migration through the day. Accepts relative expiry keywords (`current_week`). |
+| **6** | `GET /v2/market/pcr`, `/v2/market/oi`, `/v2/market/change-oi` | Server PCR/OI-per-strike/ΔOI series by bucket interval — upgrades the OC footer from a snapshot to a time-series. |
+| **7** | `GET /v2/market/fii-data`, `get-dii-data` | Dashboard sentiment strip (buy/sell ₹, contracts, net positions by interval). |
+| **8** | `GET …options-smartlist`, `…futures-smartlist` | Ranked active contracts → one-tap watchlist add; better than searching when volatility rotates. |
+| **9** | `PUT /v2/portfolio/convert-position` | MIS↔NRML↔MTF conversion at 3:00 PM without close-and-reopen slippage; button on positions rows. |
+| **10** | `POST place-multi-order` | Strategy baskets (straddle/strangle/condor presets from OC ATM±offsets). Highest power here, but also highest complexity + risk — build after 1–9, with basket-margin preview via the existing 20-instrument margin call. |
+
+### Tier 3 — situational
+
+- `GET /v2/order/trades` (per-order fills) + `get-historical-trades` — drill-down/export from the Trades page.
+- **Expired Instruments + expired-candle** endpoints — options backtesting on the Algo page (your backtester currently can't price expired option contracts).
+- `get-market-holidays`, `get-market-timings` — pairs with Rank 4 for a session calendar.
+- `get-mtf-smartlist` — only if you actually use MTF.
+
+### Explicitly NOT recommended for this app
+
+| Endpoint | Reason |
+|---|---|
+| Mutual Fund APIs | Different asset class; large UI surface for zero daily value in a derivatives terminal |
+| IPO APIs | Application-flow product; niche |
+| Payments/payouts (`/v2/user/payments/*`) | Account admin is safer in the main Upstox app |
+| User static-IP management | Console task, not a terminal feature |
+| Webhooks | Requires a server; this app is deliberately server-less |
+| MCP integration | For AI assistants, not the app itself |
+
+### Free upgrades (no new endpoint — just unused parameters)
+
+- `/v2/news` supports `category=positions` and `category=holdings` — a "news for what I hold" feed with zero symbol bookkeeping (currently only `instrument_keys` is used).
+- `option/chain` & `max-pain` & `instruments/search` all accept **relative expiry keywords** (`current_week`…`far_month`) — removes client-side expiry-date math.
