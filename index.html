@@ -3,6 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- AUDIT-C4 (2026-09-11): pragmatic CSP. The app is a single self-contained
+     file with inline script/style and a protobuf.js decoder that builds itself
+     with new Function, so 'unsafe-inline' + 'unsafe-eval' are required. The
+     value is in connect-src: only the three Upstox REST hosts and the Upstox
+     feed can be contacted, so an injected script has nowhere to exfiltrate to.
+       • worker-src/child-src blob: — the instrument master is parsed in a
+         blob: Worker (getInstrumentWorker); without this the master silently
+         falls back to main-thread parsing.
+       • img-src allows https: because news thumbnails are remote URLs.
+       • No frame-ancestors: the page is opened from file:// and inside local
+         preview wrappers, both of which a frame-ancestors directive breaks. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; worker-src 'self' blob:; child-src 'self' blob:; connect-src 'self' https://api.upstox.com https://api-hft.upstox.com https://assets.upstox.com wss://api.upstox.com wss://stream.upstox.com wss://*.upstox.com; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <title>UpTrade Pro — Fixed Live Trading Dashboard [hdr3]</title>
@@ -1667,7 +1679,7 @@ const DB=[{k:'NSE_EQ|INE002A01018',s:'RELIANCE',n:'Reliance Industries',x:'NSE'}
 const TFS=[{id:'minutes/1',lb:'1m',unit:'minutes',iv:1},{id:'minutes/3',lb:'3m',unit:'minutes',iv:3},{id:'minutes/5',lb:'5m',unit:'minutes',iv:5},{id:'minutes/10',lb:'10m',unit:'minutes',iv:10},{id:'minutes/15',lb:'15m',unit:'minutes',iv:15},{id:'minutes/30',lb:'30m',unit:'minutes',iv:30},{id:'minutes/60',lb:'60m',unit:'minutes',iv:60},{id:'hours/1',lb:'1H',unit:'hours',iv:1},{id:'hours/2',lb:'2H',unit:'hours',iv:2},{id:'hours/4',lb:'4H',unit:'hours',iv:4},{id:'days/1',lb:'D',unit:'days',iv:1},{id:'weeks/1',lb:'W',unit:'weeks',iv:1},{id:'months/1',lb:'M',unit:'months',iv:1},];
 const API_BASE='https://api.upstox.com';const API_HFT='https://api-hft.upstox.com';
 const END={AUTH_DIALOG:'/v2/login/authorization/dialog',TOKEN:'/v2/login/authorization/token',PROFILE:{base:API_BASE,path:'/v2/user/profile'},FUNDS_V3:{base:API_BASE,path:'/v3/user/get-funds-and-margin',headers:{'Api-Version':'3.0'}},ORDER_PLACE:{base:API_HFT,path:'/v3/order/place'},ORDER_MODIFY:{base:API_HFT,path:'/v3/order/modify'},ORDER_CANCEL:{base:API_HFT,path:'/v3/order/cancel'},ORDER_BOOK:{base:API_BASE,path:'/v2/order/retrieve-all'},ORDER_HISTORY:{base:API_BASE,path:'/v2/order/history'},POSITIONS:{base:API_BASE,path:'/v2/portfolio/short-term-positions'},HOLDINGS:{base:API_BASE,path:'/v2/portfolio/long-term-holdings'},GTT_PLACE:{base:API_BASE,path:'/v3/order/gtt/place'},GTT_LIST:{base:API_BASE,path:'/v3/order/gtt'},GTT_CANCEL:{base:API_BASE,path:'/v3/order/gtt/cancel'},TRADES_DAY:{base:API_BASE,path:'/v2/order/trades/get-trades-for-day'},GTT_MODIFY:{base:API_BASE,path:'/v3/order/gtt/modify'},PNL_CHARGES:{base:API_BASE,path:'/v2/trade/profit-loss/charges'},KILL_SWITCH:{base:API_BASE,path:'/v2/user/kill-switch'},ORDER_CANCEL_MULTI:{base:API_BASE,path:'/v2/order/multi/cancel'},POSITIONS_EXIT:{base:API_BASE,path:'/v2/order/positions/exit'},LOGOUT:{base:API_BASE,path:'/v2/logout'},QUOTES_V3:{base:API_BASE,path:'/v3/market-quote/quotes'},LTP_V3:{base:API_BASE,path:'/v3/market-quote/ltp'},OPT_CHAIN:{base:API_BASE,path:'/v2/option/chain'},OPT_CONTRACT:{base:API_BASE,path:'/v2/option/contract'},INSTRUMENT_SEARCH:{base:API_BASE,path:'/v2/instruments/search'},HIST:'/v3/historical-candle',HIST_INTRA:'/v3/historical-candle/intraday',WS_AUTH_V3:{base:API_BASE,path:'/v3/feed/market-data-feed/authorize'},PORTFOLIO_WS_AUTH:{base:API_BASE,path:'/v2/feed/portfolio-stream-feed/authorize'},PNL_META:{base:API_BASE,path:'/v2/trade/profit-loss/metadata'},PNL_DATA:{base:API_BASE,path:'/v2/trade/profit-loss/data'},NEWS:{base:API_BASE,path:'/v2/news'},MARGIN:{base:API_BASE,path:'/v2/charges/margin'},BROKERAGE:{base:API_BASE,path:'/v2/charges/brokerage'}};
-const $={tok:'',atok:'',ro:false,prof:null,ords:[],oM:{},pos:[],hld:[],wl:[],cd:[],ind:{sma:0,ema:0,bb:0,rsi:0,macd:0,vol:0,vwap:0,st:0,sr:0},chartUseLiveCandle:true,oSide:'BUY',ws:null,lq:{},oTab:'open',cTF:'days/1',cKey:'',cSym:'',ddSel:{},poll:null};
+const $={tok:'',atok:'',ro:false,prof:null,ords:[],oM:{},pos:[],hld:[],wl:[],cd:[],ind:{sma:0,ema:0,bb:0,rsi:0,macd:0,vol:0,vwap:0,st:0,sr:0},chartUseLiveCandle:true,oSide:'BUY',ws:null,lq:{},oTab:'open',cTF:'days/1',cKey:'',cSym:'',ddSel:{},poll:null,authShiftAt:0};
 // OC WS STATE
 const OC={chain:[],filtered:[],live:{},ws:null,root:null,Feed:null,spot:0,spotCp:0,atm:0,keys:[],map:null,connected:false,underKey:''};
 
@@ -1712,17 +1724,67 @@ function isOp(o){
   /* Unknown broker statuses default to open so the user can still act. */
   return true;
 }
+/* AUDIT-API: categories Upstox documents as Analytics-token supported
+   (no static IP): Market Quote, Historical Data, Option Chain, Market
+   Information, Fundamentals, News, Charges, Margins, Websocket.
+   GET-only per the docs, with one exception: /v2/charges/margin is the
+   non-mutating estimate POST Upstox lists under "Margins". */
+const MD_PATHS=['/v2/market/','/v2/market-quote/quotes','/v3/market-quote/ltp','/v3/market-quote/option-greek','/v2/option/chain','/v2/option/contract','/v2/instruments/search','/v3/historical-candle','/v2/fundamentals','/v2/news','/v2/charges/brokerage','/v2/charges/margin','/v3/feed/market-data-feed/authorize'];
+/* Hoisted out of rawUpstoxFetch (AUDIT-C3) so the REST 401 handler can ask the
+   same question the token picker asks: "would this call work on the Analytics
+   token?" — one list, one answer. */
+function isAtokEligible(ep,method){return MD_PATHS.some(p=>String(ep?.path||'').startsWith(p))&&(String(method||'GET').toUpperCase()==='GET'||ep?.path==='/v2/charges/margin');}
+
+/* AUDIT-C3 (2026-09-11): ONE session-expiry classifier for every feed — the
+   market WebSocket (wsC), the option-chain feed and now REST — so the three
+   copies can never drift apart. Detects: an HTTP 401 outright (even with a
+   generic message), or a message matching the historic Upstox auth-failure
+   wording. */
+const AUTH_FAIL_RE=/invalid.*token|unauthor|expired|access token|http\s*401/i;
+function isAuthFailure(e){
+  const m=String(e?.message||e||'');
+  if(!m) return false;
+  /* "No access token — log in first" is our own pre-flight error: there is no
+     session yet, which is not the same as a session having been revoked. */
+  if(/no access token/i.test(m)) return false;
+  if(Number(e?.status)===401) return true;
+  if(!AUTH_FAIL_RE.test(m)) return false;
+  /* Guard the loose `expired` arm: "contract has expired" and "invalid expiry"
+     are instrument errors, not session errors. Any token/session/login word in
+     the message keeps it classified as a session failure. */
+  if(/(contract|instrument|symbol|strike|expiry|week|month)\b/i.test(m)&&!/token|session|login|auth/i.test(m)) return false;
+  return true;
+}
+/* Session-expiry router for REST. Returns 'demote' | 'logout' | ''.
+   Order matters, and it mirrors the TOKEN-SHIFT branch in wsC():
+     1. a staged Analytics token + a dead daily token → DEMOTE: drop the daily
+        token and stay in the app read-only; retries ride the 1-yr RO token.
+     2. no fallback left (daily-only session, or the Analytics token itself
+        rejected) → LOGOUT with an explicit "session expired" toast. */
+function restAuthShift(e){
+  if(!isAuthFailure(e)) return '';
+  /* 401s arrive in parallel from every polling loop, so de-dupe the transition
+     and its toast for 4s — one expiry must never fire twenty logouts. */
+  const now=Date.now();
+  if($.authShiftAt&&now-$.authShiftAt<4000) return '';
+  $.authShiftAt=now;
+  if($.atok&&$.tok){
+    $.tok='';
+    try{sessionStorage.removeItem('u_tok');localStorage.removeItem('u_tok');}catch(_){}
+    $.ro=true;
+    PRO_HUB.cache.clear();   /* payloads cached under the now-dead daily token */
+    ts('Daily token expired — shifted to Analytics token (read-only market data). Paste a fresh daily token to restore trading.','w');
+    return 'demote';
+  }
+  try{logout();}catch(_){}
+  ts('Session expired — Upstox rejected the access token. Log in again.','e');
+  return 'logout';
+}
 async function rawUpstoxFetch(ep,{method='GET',body=null,query='',headersAdd={}}={}){
   /* AUDIT-API (2026-09-10): token picker — the 1-year read-only Analytics token
      serves market-data GETs (quotes/chain/search/history/news/market-WS auth);
      trading + portfolio paths still require the daily OAuth token. */
-  /* AUDIT-API: categories Upstox documents as Analytics-token supported
-     (no static IP): Market Quote, Historical Data, Option Chain, Market
-     Information, Fundamentals, News, Charges, Margins, Websocket.
-     GET-only per the docs, with one exception: /v2/charges/margin is the
-     non-mutating estimate POST Upstox lists under "Margins". */
-  const MD_PATHS=['/v2/market/','/v2/market-quote/quotes','/v3/market-quote/ltp','/v3/market-quote/option-greek','/v2/option/chain','/v2/option/contract','/v2/instruments/search','/v3/historical-candle','/v2/fundamentals','/v2/news','/v2/charges/brokerage','/v2/charges/margin','/v3/feed/market-data-feed/authorize'];
-  const atokOK=MD_PATHS.some(p=>ep.path.startsWith(p))&&(String(method).toUpperCase()==='GET'||ep.path==='/v2/charges/margin');
+  const atokOK=isAtokEligible(ep,method);
   const bearer=atokOK?($.tok||$.atok):$.tok;
   if(!bearer) throw new Error(atokOK?'No access token — paste your daily token, or connect the 1-year Analytics token (read-only market data)':'No access token — the daily login token is required for trading and portfolio APIs');
   const base=ep.base||API_BASE;
@@ -1747,7 +1809,11 @@ async function rawUpstoxFetch(ep,{method='GET',body=null,query='',headersAdd={}}
   if(raw){ try{d=JSON.parse(raw);}catch{d={message:raw.slice(0,300)};} }
   if(!r.ok||d.status==='error'){
     const err=d.errors?.[0];
-    throw new Error(err?.message||err?.errorCode||d.message||`HTTP ${r.status}`);
+    const ee=new Error(err?.message||err?.errorCode||d.message||`HTTP ${r.status}`);
+    /* AUDIT-C3: carry the HTTP status so isAuthFailure() can act on a hard 401
+       even when Upstox returns a generic message body. */
+    ee.status=r.status;
+    throw ee;
   }
   return d;
 }
@@ -1892,7 +1958,14 @@ function proBusyWatchdog(){
 setInterval(proBusyWatchdog,5000);
 async function upstoxFetch(ep,options={}){
   if(!$.tok&&!$.atok) throw new Error('No access token — log in first');
-  const method=String(options.method||'GET').toUpperCase(),force=!!options._force,fast=!!options._fast,key=`${method}|${ep.base||API_BASE}${ep.path}${options.query||''}`,ttl=method==='GET'?proTTL(ep):0,now=Date.now(),cached=PRO_HUB.cache.get(key);if(!force&&ttl&&cached&&now-cached.at<ttl){PRO_HUB.hits++;proHubStatus();return cached.data;}if(!force&&method==='GET'&&PRO_HUB.inflight.has(key)){PRO_HUB.hits++;return PRO_HUB.inflight.get(key);}const maxAttempts=fast?1:3;const task=proSchedule(async()=>{let error;for(let attempt=0;attempt<maxAttempts;attempt++){proHubProgress();try{PRO_HUB.requests++;const data=await rawUpstoxFetch(ep,options);PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;if(ttl&&$.tok)PRO_HUB.cache.set(key,{at:Date.now(),data});if(method!=='GET'&&!options._readonly)proInvalidate();proHubStatus();return data;}catch(e){error=e;const retry=/429|network|cors|http 5|rate|too many|timeout/i.test(e.message);if(!retry||attempt===maxAttempts-1)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)+Math.random()*180));}}if(!/no access token/i.test(error?.message||'')){PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');}throw error;});if(method==='GET')PRO_HUB.inflight.set(key,task);try{return await task;}finally{PRO_HUB.inflight.delete(key);}
+  const method=String(options.method||'GET').toUpperCase(),force=!!options._force,fast=!!options._fast,key=`${method}|${ep.base||API_BASE}${ep.path}${options.query||''}`,ttl=method==='GET'?proTTL(ep):0,now=Date.now(),cached=PRO_HUB.cache.get(key);if(!force&&ttl&&cached&&now-cached.at<ttl){PRO_HUB.hits++;proHubStatus();return cached.data;}if(!force&&method==='GET'&&PRO_HUB.inflight.has(key)){PRO_HUB.hits++;return PRO_HUB.inflight.get(key);}const maxAttempts=fast?1:3;const task=proSchedule(async()=>{let error;for(let attempt=0;attempt<maxAttempts;attempt++){proHubProgress();try{PRO_HUB.requests++;const data=await rawUpstoxFetch(ep,options);PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;if(ttl&&$.tok)PRO_HUB.cache.set(key,{at:Date.now(),data});if(method!=='GET'&&!options._readonly)proInvalidate();proHubStatus();return data;}catch(e){error=e;const retry=/429|network|cors|http 5|rate|too many|timeout/i.test(e.message);if(!retry||attempt===maxAttempts-1)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)+Math.random()*180));}}/* AUDIT-C3: REST 401 / rejected-token handling — demote to the staged
+   Analytics token if there is one, otherwise force a "session expired"
+   logout. Market-data paths are then retried once on the Analytics token. */
+const shift=restAuthShift(error);
+if(shift==='demote'&&isAtokEligible(ep,method)){
+  try{PRO_HUB.requests++;const data=await rawUpstoxFetch(ep,{...options,_force:true});PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;if(ttl&&$.tok)PRO_HUB.cache.set(key,{at:Date.now(),data});proHubStatus();return data;}catch(e2){error=e2;}
+}
+if(!/no access token/i.test(error?.message||'')){PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');}throw error;});if(method==='GET')PRO_HUB.inflight.set(key,task);try{return await task;}finally{PRO_HUB.inflight.delete(key);}
 }
 
 async function apiHist(url){
@@ -2394,7 +2467,7 @@ function aTok(){
      Pasting a fresh daily token no longer clears it. */
   if(t){
     if(t.length<20)return ts('That does not look like a valid access token','w');
-    $.tok=t;$.ro=false;
+    $.tok=t;$.ro=false;$.authShiftAt=0;   /* fresh daily token — clear any 401 shift state */
     try{sessionStorage.setItem('u_tok',t);}catch(e){}
     const aT=document.getElementById('aT'); if(aT)aT.value='';
     init();return;
@@ -3596,7 +3669,7 @@ async function wsC(internal=false){
     ws.onclose=ev=>{if($.ws!==ws)return;$.ws=null;upWS(0);if(typeof wsLog==='function')wsLog('market','closed',ev);if($.chartLiveEnabled)chartSetLiveState('error','Reconnecting');/* The header index strip, inspector and OC fallback all ride this socket — reconnect whenever a session is active. */if(!$.tok)return;if($.wsOpenedAt&&Date.now()-$.wsOpenedAt>60000)$.wsReconnectAttempts=0;$.wsOpenedAt=0;const attempt=($.wsReconnectAttempts||0)+1;$.wsReconnectAttempts=attempt;const delay=Math.min(30000,1500*Math.pow(2,Math.min(attempt,4)));$.wsReconnectTimer=setTimeout(()=>wsC(true),delay);if(typeof wsKickAll==='function')wsKickAll('main closed'+(ev&&ev.code?' code='+ev.code:''));};
     ws.onerror=()=>{if($.ws===ws){if($.chartLiveEnabled)chartSetLiveState('error','Feed error');if(!internal)ts('Market WebSocket error','e');}};
   }catch(e){$.wsConnecting=false;upWS(0);if($.chartLiveEnabled)chartSetLiveState('error','Feed unavailable');if(!internal)ts('Market WebSocket: '+e.message,'e');else console.warn('Shared WebSocket',e.message);if(typeof wsLog==='function')wsLog('market','connect failed',e.message);
-    if(/invalid.*token|unauthor|expired|access token|http\s*401/i.test(e.message)){$.wsAuthFailStreak=($.wsAuthFailStreak||0)+1;/* TOKEN-SHIFT: dead daily token + staged Analytics token → demote, retries ride the 1-yr RO token */if($.atok&&$.tok){$.tok='';sessionStorage.removeItem('u_tok');$.wsAuthFailStreak=0;$.ro=true;ts('Daily token expired — market feed shifted to Analytics token (read-only)','w');}else if($.wsAuthFailStreak===5)ts('Market feed stopped — access token looks expired. Log in again.','e');}else $.wsAuthFailStreak=0;
+    if(isAuthFailure(e)){$.wsAuthFailStreak=($.wsAuthFailStreak||0)+1;/* TOKEN-SHIFT: dead daily token + staged Analytics token → demote, retries ride the 1-yr RO token */if($.atok&&$.tok){$.tok='';sessionStorage.removeItem('u_tok');$.wsAuthFailStreak=0;$.ro=true;ts('Daily token expired — market feed shifted to Analytics token (read-only)','w');}else if($.wsAuthFailStreak===5)ts('Market feed stopped — access token looks expired. Log in again.','e');}else $.wsAuthFailStreak=0;
     if(($.tok||$.atok)&&($.wsAuthFailStreak||0)<5){const attempt=($.wsReconnectAttempts||0)+1;$.wsReconnectAttempts=attempt;clearTimeout($.wsReconnectTimer);$.wsReconnectTimer=setTimeout(()=>wsC(true),Math.min(30000,1500*Math.pow(2,Math.min(attempt,4))));}}
 }
 function addW(k,s,x,meta={}){const item=normalizeWatchItem({...meta,k,s,x,n:meta.n||s});if(!item)return ts('This instrument cannot be added because its instrument key is invalid','e');$.wl=sanitizeWatchlist($.wl,{fallback:false,save:false});if($.wl.some(w=>w.k===item.k))return ts(`${item.s} is already in the watchlist`,'i');$.wl.push(item);persistWatchlist();rnW();ldWQ();wsSend('sub',[item.k],'full');}
@@ -4156,7 +4229,7 @@ function ocTryReconnect(){
   ocConnectWS().catch(e=>{
     if(typeof wsLog==='function')wsLog('option-chain','reconnect failed',e&&e.message);
     ocEnableFallback('dedicated reconnect failed: '+(e&&e.message));
-    if(/invalid.*token|unauthor|expired|access token|http\s*401/i.test(String(e&&e.message))){if($.atok&&$.tok){$.tok='';sessionStorage.removeItem('u_tok');$.ro=true;ts('Daily token expired — option feed shifted to Analytics token (read-only)','w');}else{OC.wantLive=false;const txt=document.getElementById('ocLiveTxt');if(txt)txt.textContent='Session expired';ts('Option feed stopped — token expired. Log in again.','e');return;}}
+    if(isAuthFailure(e)){if($.atok&&$.tok){$.tok='';sessionStorage.removeItem('u_tok');$.ro=true;ts('Daily token expired — option feed shifted to Analytics token (read-only)','w');}else{OC.wantLive=false;const txt=document.getElementById('ocLiveTxt');if(txt)txt.textContent='Session expired';ts('Option feed stopped — token expired. Log in again.','e');return;}}
     if(!OC.wantLive||OC.reconnectTimer)return;
     const attempt=(OC.wsAttempts||0)+1;OC.wsAttempts=attempt;
     if(attempt>8){const txt=document.getElementById('ocLiveTxt');if(txt)txt.textContent='Stopped — press Start live';return;}
