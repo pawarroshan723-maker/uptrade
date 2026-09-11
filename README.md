@@ -117,7 +117,7 @@ line ~1634–6565 THE APP SCRIPT (one scope, ~440 functions), organized by
 | **5** | 4507–4519 | Keyboard shortcuts (Ctrl+K search, Esc closes panels, etc.) |
 | **7** | 4520–5756 | OC fix-pack: broker-style stacked cells, column manager modal, bid/ask depth ladder & popup, OI bars, font stepping, mobile card view, PCR, col-versioned localStorage migrations |
 | **9** | 5757–5830 | Multi-watchlist groups (`wlg*`) |
-| **11** | 5831–5910 | **WS watchdog & status**: `wsLog`, header WS counter, `wsReviveAll` (network-online revival), `wsKickAll` (cascade recovery when main feed dies) |
+| **11** | 5831–5910 | **WS watchdog & status**: `wsLog`, combined **Live Feed** header button (state + active socket count + connect/re-subscribe on click — replaces the old `0 WS` chip, `Off/Live` chip and separate Feed button), `wsReviveAll` (network-online revival), `wsKickAll` (cascade recovery when main feed dies) |
 | **12** | 5911–5932 | OC auto-load (defaults to Nifty 50 on login) |
 | **13** | 5933–6145 | **MCX commodity chains** built client-side; `ocOptionGreekQuotes` 50-key chunking |
 | **16** | 6146–6259 | OC quick tabs (index + commodity one-click switch) |

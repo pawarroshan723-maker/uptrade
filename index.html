@@ -801,6 +801,7 @@ html{background:var(--r-page)}body{background:var(--r-page);color:var(--r-text)}
 #ocTable td.oc-inner{background:rgba(124,58,237,.05)}
 .hst.ws-count{cursor:pointer;user-select:none}
 .hst.ws-count .sdot{box-shadow:0 0 6px currentColor}
+.feed-btn{display:inline-flex;align-items:center;gap:5px}.feed-btn .sdot{animation:none}.feed-btn.on{border-color:var(--gn);color:var(--gn)}.feed-btn.on .sdot{background:var(--gn);animation:pls 2s infinite;box-shadow:0 0 6px currentColor}
 .oc-ws-badge{display:inline-block;margin-left:6px;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:.4px;vertical-align:middle}
 .oc-ws-badge.ded{background:rgba(124,58,237,.18);color:#c4b5fd;border:1px solid rgba(124,58,237,.5)}
 .oc-ws-badge.main{background:rgba(6,182,212,.15);color:#67e8f9;border:1px solid rgba(6,182,212,.5)}
@@ -1373,7 +1374,7 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
       <div class="pro-mkt pro-mkt-vix" id="proVixMarket" data-key="NSE_INDEX|India VIX"><span>VIX</span><b id="pmVix">—</b><i id="pmVixC">—</i></div>
       <div class="pro-mkt pro-mkt-commodity" id="proCrudeMarket" data-key="MCX_FO|565899" title="Crude Oil front-month futures"><span>CRUDE FUT <em class="pro-card-expiry" id="pmCrudeExp"></em></span><b id="pmCrude">—</b><i id="pmCrudeC">—</i></div>
     </div>
-    <div class="hr"><div class="hst off" id="mStat" title="Exchange status"><span class="sdot"></span><span id="mStatT">Mkt —</span></div><div class="hst off ws-count" id="wCnt" title="Active WebSockets — click for details"><span class="sdot"></span><span id="wCntT">0 WS</span></div><div class="hst off" id="wS"><span class="sdot"></span><span id="wT">Off</span></div><button type="button" class="hb" onclick="wsC()">Feed</button><button type="button" class="hb" id="proInspectorBtn" onclick="proToggleInspector()">Inspector</button><button type="button" class="hb" id="panicBtn" onclick="panicExitAll()" title="Cancel MY open orders, then square off MY open positions (tag: uptrade-web)">🛑 Panic</button><button type="button" class="hb dg" onclick="logout()">Logout</button></div>
+    <div class="hr"><div class="hst off" id="mStat" title="Exchange status"><span class="sdot"></span><span id="mStatT">Mkt —</span></div><button type="button" class="hb feed-btn" id="wS" onclick="wsC()" aria-label="Market feed" title="Market feed — click to connect"><span class="sdot"></span><span id="wT">Feed</span></button><button type="button" class="hb" id="proInspectorBtn" onclick="proToggleInspector()">Inspector</button><button type="button" class="hb" id="panicBtn" onclick="panicExitAll()" title="Cancel MY open orders, then square off MY open positions (tag: uptrade-web)">🛑 Panic</button><button type="button" class="hb dg" onclick="logout()">Logout</button></div>
 </header>
 <div class="pgc">
 
@@ -2655,7 +2656,7 @@ function gSh(){document.getElementById('gSR').classList.remove('on');}
 
 // WS WATCH
 
-function upWS(on){document.getElementById('wS').className=on?'hst ok':'hst off';document.getElementById('wT').textContent=on?'Live':'Off';const text=document.getElementById('psWs'),dot=document.getElementById('psWsDot');if(text)text.textContent=on?'Live':'Offline';if(dot)dot.className=`status-dot ${on?'on':''}`;if(typeof wsCountUpdate==='function')wsCountUpdate();}
+function upWS(on){const el=document.getElementById('wS'),t=document.getElementById('wT');if(el)el.className='hb feed-btn'+(on?' on':'');if(t)t.textContent=on?'Live':($.wsConnecting?'Connecting…':'Feed');const text=document.getElementById('psWs'),dot=document.getElementById('psWsDot');if(text)text.textContent=on?'Live':'Offline';if(dot)dot.className=`status-dot ${on?'on':''}`;if(typeof wsCountUpdate==='function')wsCountUpdate();}
 
 // CHART
 
@@ -5960,12 +5961,12 @@ function wsCountUpdate(){
   try{
     const alive=w=>!!w&&w.readyState===1;
     const n=(alive($.ws)?1:0)+(alive(OC.ws)?1:0)+(alive($.pws)?1:0);
-    const chip=document.getElementById('wCnt'),txt=document.getElementById('wCntT');
+    const chip=document.getElementById('wS'),txt=document.getElementById('wT');
     if(!chip||!txt)return;
-    txt.textContent=n+' WS';
-    chip.className='hst ws-count '+(n?'ok':'off');
+    const live=alive($.ws),connecting=!live&&($.wsConnecting||($.ws&&$.ws.readyState===0));
+    txt.textContent=live?'Live'+(n?' · '+n:''):connecting?'Connecting…':'Feed'+(n?' · '+n:'');
     const st=w=>!w?'down':w.readyState===1?'live':w.readyState===0?'connecting':'dead';
-    chip.title='Active WebSockets ('+n+'/3) — click for details'+String.fromCharCode(10)
+    chip.title=(live?'Market feed live — click to re-subscribe':connecting?'Market feed connecting…':'Market feed off — click to connect')+String.fromCharCode(10)+'Sockets: '+n+'/3'+String.fromCharCode(10)
       +'• Market feed: '+st($.ws)+String.fromCharCode(10)
       +'• Option chain: '+(OC.fallback?'OC-WS-1 (main WS)':(alive(OC.ws)?'OC-WS-3 (dedicated)':st(OC.ws)))+((alive(OC.ws)||OC.fallback)?' ('+((OC.keys&&OC.keys.length)||0)+' keys)':'')+String.fromCharCode(10)
       +'• Portfolio stream: '+st($.pws);

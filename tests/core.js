@@ -40,6 +40,16 @@ const { boot, okpush, report } = require('./helpers');
   w.eval(`nav('oc')`);
   ok("nav('oc') shows option-chain page", w.eval(`document.getElementById('pg-oc') && document.getElementById('pg-oc').style.display!=='' ? true : document.getElementById('pg-oc').classList.contains('on') || getComputedStyle(document.getElementById('pg-oc')).display!=='none'`));
 
+  // -- combined Live/Feed header button (merges old wCnt chip + wS chip + Feed button)
+  ok('header: single #wS feed-btn; old wCnt chip + separate Feed button gone',
+    w.eval(`var b=document.getElementById('wS'); b && b.tagName==='BUTTON' && b.classList.contains('feed-btn') && document.getElementById('wCnt')===null && document.getElementById('wCntT')===null`));
+  w.eval(`$.ws={readyState:1}; upWS(1)`);
+  ok('upWS(1) w/ live socket → "Live · 1", green state', w.eval(`document.getElementById('wT').textContent`) === 'Live · 1' && w.eval(`document.getElementById('wS').className`).includes('on'));
+  w.eval(`$.ws=null; upWS(0)`);
+  ok('upWS(0) → "Feed" (neutral)', w.eval(`document.getElementById('wT').textContent`) === 'Feed' && !w.eval(`document.getElementById('wS').className`).includes('on'));
+  w.eval(`wsCountUpdate()`);
+  ok('tooltip carries socket details (3 sockets)', w.eval(`document.getElementById('wS').title`).includes('Market feed') && w.eval(`document.getElementById('wS').title`).includes('Portfolio stream'));
+
   // -- trading guards stay daily-only (analytics session must be refused, no fetch)
   ({ w, calls: global.__none } = await boot({ tokens: { ls: { u_atok: 'ATOKPERSIST-1234567890' } }, settle: 800 }));
   const before = w.__calls.length;
