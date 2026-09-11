@@ -29,6 +29,23 @@ CSP.split(';').map(s => s.trim()).filter(Boolean).forEach(d => {
   DIRS[i < 0 ? d : d.slice(0, i)] = i < 0 ? '' : d.slice(i + 1);
 });
 const src = k => DIRS[k] || '';
+/* Minimal CSP source matcher — enough to answer "would the browser let the app
+ * load this URL?" for the hosts this app actually contacts. Lets us assert the
+ * policy against the URLs the app really requests (below), instead of trusting
+ * that the allow-list and the code agree. */
+const PAGE_ORIGIN = 'https://test.example.com';
+const allowedBy = (directive, url) => {
+  let u; try { u = new URL(url, PAGE_ORIGIN); } catch { return false; }
+  return (src(directive) || '').split(/\s+/).filter(Boolean).some(s => {
+    if (s === "'self'") return u.origin === PAGE_ORIGIN;
+    if (s === '*' || s === 'https:' || s === 'wss:') return true;
+    if (/^(blob|data):$/.test(s)) return u.protocol === s;
+    const m = s.match(/^([a-z]+):\/\/(\*\.)?([^/]+)$/i);
+    if (!m) return false;
+    if (u.protocol !== m[1] + ':') return false;
+    return m[2] ? u.hostname === m[3] || u.hostname.endsWith('.' + m[3]) : u.hostname === m[3];
+  });
+};
 
 const attempt = (w, expr) => w.eval(`(async()=>{ try{ await ${expr}; return 'ALLOWED'; }catch(e){ return 'REJECTED: '+e.message; } })()`);
 
@@ -87,6 +104,13 @@ const attempt = (w, expr) => w.eval(`(async()=>{ try{ await ${expr}; return 'ALL
   await w.eval(`apiHist('https://api.upstox.com/v3/historical-candle/NSE_EQ%7CINE002A01018/day/2026-09-01/2026-09-10')`).catch(() => {});
   await new Promise(r => setTimeout(r, 400));
   ok('apiHist uses daily bearer when daily present', calls.slice(b).some(c => c.u.includes('/v3/historical-candle') && c.auth === 'Bearer DAYTOK-1234567890abcdef'));
+
+  // -- CSP: the policy must not block any URL the app actually requests
+  ({ w, calls } = await boot({ tokens: DAY, settle: 2500 }));
+  const urls = [...new Set(calls.map(c => c.u))];
+  ok(`CSP: all ${urls.length} URLs requested at runtime pass connect-src`,
+    (urls.length >= 8 && urls.every(u => allowedBy('connect-src', u)))
+      || 'blocked by policy: ' + urls.filter(u => !allowedBy('connect-src', u)).join(', '));
 
   process.exit(report('DOC-COMPLIANCE TESTS', R) ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

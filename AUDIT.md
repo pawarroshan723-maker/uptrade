@@ -270,6 +270,20 @@ edit: **69/69 green across 5 suites** (`node tests/run-all.js`).
 | `img-src` | `'self' data: blob: https:` | news thumbnails are remote URLs; the FY chevron is an inline SVG data URI |
 | `object-src`, `base-uri`, `form-action` | `'none'` | no plugins, no `<base>`, no forms in the app |
 
+**Enforcement was verified without a browser.** No Chromium is installable in a
+CI sandbox here (only the npm registry and GitHub are reachable), so instead of
+asserting the policy only by reading it, `tests/doccheck.js` boots the app for
+2.5 s, records every URL it actually requests, and evaluates each one against
+the shipped `connect-src` with a small source matcher. All 13 distinct
+endpoints pass (`api.upstox.com` profile/positions/holdings/orders/feeds,
+`assets.upstox.com` instrument master, market status, LTP). Removing
+`assets.upstox.com` from the policy makes that assert fail and print the blocked
+URL — so the policy and the code cannot silently disagree. What this cannot
+cover: the WebSocket URL is returned by the authorize response at runtime, so
+the `wss://` allow-list is a standing assumption (Upstox returns
+`wss://api.upstox.com/...`; anything else would surface as a connect failure,
+which the feed already handles with a toast and backoff).
+
 `frame-ancestors` is deliberately **omitted**: the file is opened from `file://`
 and from local preview wrappers, and any value at all breaks both.
 
@@ -310,11 +324,12 @@ Three design points worth recording:
 | Check | Result |
 |---|---|
 | `node --check` on both executable script blocks | PASS |
-| Full battery (`node tests/run-all.js`) | **82/82 green across 5 suites** (was 69/69) |
-| New CSP asserts (`tests/doccheck.js`) | 4 (10 -> 14) |
+| Full battery (`node tests/run-all.js`) | **83/83 green across 5 suites** (was 69/69) |
+| New CSP asserts (`tests/doccheck.js`) | 5 (10 -> 15) |
 | New 401 asserts (`tests/core.js`) | 9 (15 -> 24) |
 | Mutation: disable `restAuthShift()` | 5 new asserts fail; the 4 negative controls still pass, as they must |
 | Mutation: weaken CSP (`connect-src *`, drop `worker-src blob:`) | 2 new asserts fail |
+| Mutation: drop `assets.upstox.com` from `connect-src` | 1 new assert fails and names the blocked URL |
 
 ---
 

@@ -235,10 +235,10 @@ node tests/run-all.js  # -> ALL SUITES GREEN
 | `mstest.js` | 11 | market-status header chip against the doc-exact contract |
 | `oc_ro.js` | 11 | option chain in a read-only (analytics-token) session |
 | `pltest.js` | 22 | P&L metadata / data / charges, paging, error surfacing |
-| `doccheck.js` | 14 | analytics-token allow-list vs the official doc + CSP policy |
+| `doccheck.js` | 15 | analytics-token allow-list vs the official doc + CSP policy |
 | `core.js` | 24 | boot, token shift, navigation, trading guards, REST 401 demote-vs-logout |
 
-**82/82 green** as of 2026-09-11. `tests/helpers.js` boots the real `index.html`
+**83/83 green** as of 2026-09-11. `tests/helpers.js` boots the real `index.html`
 in jsdom with stubbed `fetch` / `WebSocket` / `IndexedDB`, so every suite
 exercises the shipped file rather than a copy of its logic.
 
