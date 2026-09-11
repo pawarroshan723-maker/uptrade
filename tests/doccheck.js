@@ -6,14 +6,54 @@
  *   Static-IP group (browser can never reach): User, Payments, Orders, GTT,
  *   Portfolio, Mutual Fund, Trade Profit And Loss → daily token required.
  */
-const { boot, okpush, report } = require('./helpers');
+const fs = require('fs');
+const { boot, okpush, report, INDEX } = require('./helpers');
 const DAY = { ss: { u_tok: 'DAYTOK-1234567890abcdef' } };
 const RO = { ls: { u_atok: 'ATOKPERSIST-1234567890' } };
+
+/* ---- AUDIT-C4 (2026-09-11): CSP smoke -------------------------------------
+ * The policy is a single-file <meta> tag: it must exist exactly once, sit in
+ * <head> ahead of the first <script> (a CSP only applies to what loads after
+ * it), keep the two unsafe-* this app genuinely needs, and above all pin
+ * connect-src to the Upstox hosts so an injected script has no exfiltration
+ * channel. worker-src must keep blob: or the instrument-master Worker dies.
+ */
+const HTML = fs.readFileSync(INDEX, 'utf8');
+// The policy body is full of quoted keywords ('self', 'unsafe-eval'), so the
+// capture group must not exclude the other quote character.
+const CSP_MATCHES = HTML.match(/<meta\s+http-equiv=(["'])Content-Security-Policy\1\s+content=(["'])([\s\S]*?)\2\s*\/?>/gi) || [];
+const CSP = CSP_MATCHES.length === 1 ? CSP_MATCHES[0].match(/content=(["'])([\s\S]*?)\1/i)[2] : '';
+const DIRS = {};
+CSP.split(';').map(s => s.trim()).filter(Boolean).forEach(d => {
+  const i = d.indexOf(' ');
+  DIRS[i < 0 ? d : d.slice(0, i)] = i < 0 ? '' : d.slice(i + 1);
+});
+const src = k => DIRS[k] || '';
 
 const attempt = (w, expr) => w.eval(`(async()=>{ try{ await ${expr}; return 'ALLOWED'; }catch(e){ return 'REJECTED: '+e.message; } })()`);
 
 (async () => {
   const R = []; const ok = okpush(R);
+
+  // -- CSP (AUDIT-C4): one policy, declared before any script runs
+  ok('CSP: exactly one Content-Security-Policy meta, ahead of the first <script>',
+    CSP_MATCHES.length === 1 && HTML.indexOf(CSP_MATCHES[0]) < HTML.indexOf('<script'));
+
+  // -- CSP: connect-src is the real control — Upstox hosts only, no wildcard
+  ok('CSP: connect-src pins api/api-hft/assets + wss feed, no wildcard',
+    ['https://api.upstox.com', 'https://api-hft.upstox.com', 'https://assets.upstox.com']
+      .every(h => src('connect-src').includes(h))
+    && /wss:\/\/[a-z0-9.*-]*\.?upstox\.com/.test(src('connect-src'))
+    && !/(^|\s)\*(\s|$)/.test(src('connect-src')));
+
+  // -- CSP: the two unsafe-* this app needs, plus the hardening directives
+  ok('CSP: script-src keeps unsafe-eval (protobuf codegen) + unsafe-inline; object-src/base-uri none',
+    src('script-src').includes("'unsafe-eval'") && src('script-src').includes("'unsafe-inline'")
+    && src('object-src') === "'none'" && src('base-uri') === "'none'");
+
+  // -- CSP: the instrument master parses in a blob: Worker — don't break it
+  ok('CSP: worker-src allows blob: (instrument-master Worker) and default-src is self, not *',
+    /blob:/.test(src('worker-src')) && src('default-src') === "'self'");
 
   let { w, calls } = await boot({ tokens: RO, settle: 800 });
   const F = ep => `upstoxFetch({base:API_BASE,path:'${ep}'},{_force:true})`;

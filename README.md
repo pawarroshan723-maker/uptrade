@@ -10,7 +10,7 @@ A **single-file live trading dashboard** for the [Upstox](https://upstox.com) br
 
 | File | What it is |
 |---|---|
-| `index.html` | **The entire application** (~690 KB, 6,565 lines): CSS, HTML, JavaScript, and the Upstox protobuf schema, all inline. |
+| `index.html` | **The entire application** (~720 KB, 6,948 lines): CSS, HTML, JavaScript, and the Upstox protobuf schema, all inline. |
 | `AUDIT.md` | Deep code audit: architecture map, security/correctness findings, re-verification results. |
 | `README.md` | This document — how the app and its one file work. |
 
@@ -223,7 +223,29 @@ EOF
 node --check /tmp/blk0.js && node --check /tmp/blk2.js && echo SYNTAX-OK
 ```
 
-Runtime smoke-testing instructions (jsdom, 74 assertions over boot/navigation/auth-guards/escaping/logout) are in **[AUDIT.md](AUDIT.md)** §8 and §10 — last full run: **72/74 pass**, the 2 remaining assertions were test-harness artifacts, root-caused and re-verified manually.
+### Regression battery (kept in `tests/`)
+
+```bash
+npm i jsdom            # the only dependency
+node tests/run-all.js  # -> ALL SUITES GREEN
+```
+
+| Suite | Asserts | Covers |
+|---|---|---|
+| `mstest.js` | 11 | market-status header chip against the doc-exact contract |
+| `oc_ro.js` | 11 | option chain in a read-only (analytics-token) session |
+| `pltest.js` | 22 | P&L metadata / data / charges, paging, error surfacing |
+| `doccheck.js` | 14 | analytics-token allow-list vs the official doc + CSP policy |
+| `core.js` | 24 | boot, token shift, navigation, trading guards, REST 401 demote-vs-logout |
+
+**82/82 green** as of 2026-09-11. `tests/helpers.js` boots the real `index.html`
+in jsdom with stubbed `fetch` / `WebSocket` / `IndexedDB`, so every suite
+exercises the shipped file rather than a copy of its logic.
+
+The 74-assertion jsdom smoke test these suites grew out of is described in
+**[AUDIT.md](AUDIT.md)** §8 and §10 — last full run: **72/74 pass**, the 2
+remaining assertions were test-harness artifacts, root-caused and re-verified
+manually.
 
 ---
 

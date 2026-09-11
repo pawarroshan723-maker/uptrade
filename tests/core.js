@@ -69,5 +69,87 @@ const { boot, okpush, report } = require('./helpers');
   ok('searchInstruments hits /v2/instruments/search with atok bearer',
     w.__calls.slice(b2).some(c => c.u.includes('/v2/instruments/search') && c.auth === 'Bearer ATOKPERSIST-1234567890'));
 
+  /* ---- AUDIT-C3 (2026-09-11): REST 401 → demote vs logout -------------------
+   * Contract: a rejected token with an Analytics token staged DEMOTES (drop the
+   * dead daily token, stay in the app read-only) and market-data calls are
+   * retried on the RO token; with no fallback left it LOGOUTS with an explicit
+   * "Session expired" toast. Local pre-flight errors, 403s and instrument-level
+   * "expired" wording must never trigger either transition.
+   */
+  const DAY = { ss: { u_tok: 'DAYTOK-1234567890abcdef' } };
+  const RO = { ls: { u_atok: 'ATOKPERSIST-1234567890' } };
+  const BOTH = { ss: { u_tok: 'DAYTOK-1234567890abcdef' }, ls: { u_atok: 'ATOKPERSIST-1234567890' } };
+  const UNAUTH = { status: 'error', errors: [{ errorCode: 'UDAPI100059', message: 'Invalid Access Token' }] };
+  const toast = () => w.eval(`document.getElementById('TC').textContent`);
+  const attempt = expr => w.eval(`(async()=>{try{await ${expr};return 'ALLOWED';}catch(e){return 'REJECTED: '+e.message;}})()`);
+  const held = () => w.eval(`$.tok==="DAYTOK-1234567890abcdef" && $.ro===false`);
+
+  // A: 401 on a market-data path + staged atok → demote, then retry on the RO token
+  let md401 = 0;
+  ({ w, calls } = await boot({ tokens: BOTH, routes: [{ re: /DEMO_MD401/, bodyFn: () => (++md401 === 1 ? UNAUTH : { status: 'success', data: {} }) }], settle: 800 }));
+  const a1 = await attempt(`upstoxFetch({base:API_BASE,path:'/v2/market-quote/quotes'},{query:'?i=DEMO_MD401',_force:true})`);
+  await new Promise(r => setTimeout(r, 200));
+  ok('401 on market path w/ staged atok → demote + retry on the RO token',
+    a1 === 'ALLOWED'
+    && w.eval(`!$.tok && $.ro===true && $.atok==="ATOKPERSIST-1234567890"`)
+    && !w.eval(`sessionStorage.getItem('u_tok')`)
+    && calls.filter(c => c.u.includes('DEMO_MD401')).map(c => c.auth).join(' → ') === 'Bearer DAYTOK-1234567890abcdef → Bearer ATOKPERSIST-1234567890'
+    && toast().includes('Analytics token'));
+
+  // B: 401 on a daily-only path → demote, but never retried on the RO token
+  ({ w, calls } = await boot({ tokens: BOTH, routes: [{ re: /DEMO_PROF401/, status: 401, body: UNAUTH }], settle: 800 }));
+  const b1 = await attempt(`upstoxFetch({base:API_BASE,path:'/v2/user/profile'},{query:'?x=DEMO_PROF401',_force:true})`);
+  ok('401 on daily-only path → demotes but does NOT retry on the RO token',
+    b1.startsWith('REJECTED') && /Invalid Access Token/.test(b1)
+    && w.eval(`!$.tok && $.ro===true && !!$.atok`)
+    && !calls.some(c => c.u.includes('DEMO_PROF401') && c.auth === 'Bearer ATOKPERSIST-1234567890'));
+
+  // C: daily-only session, no fallback → forced logout
+  ({ w } = await boot({ tokens: DAY, routes: [{ re: /DEMO_LOGOUT401/, status: 401, body: UNAUTH }], settle: 800 }));
+  const c1 = await attempt(`upstoxFetch({base:API_BASE,path:'/v2/market-quote/quotes'},{query:'?i=DEMO_LOGOUT401',_force:true})`);
+  await new Promise(r => setTimeout(r, 250));
+  ok('401 with no atok staged → logout + "Session expired" toast',
+    c1.startsWith('REJECTED') && w.eval(`!$.tok && !$.atok && !$.ro`)
+    && !w.eval(`sessionStorage.getItem('u_tok')`) && toast().includes('Session expired'));
+
+  // D: the Analytics token itself is rejected → logout (nothing left to fall back to)
+  ({ w } = await boot({ tokens: RO, routes: [{ re: /DEMO_RO401/, status: 401, body: UNAUTH }], settle: 800 }));
+  const d1 = await attempt(`upstoxFetch({base:API_BASE,path:'/v2/market-quote/quotes'},{query:'?i=DEMO_RO401',_force:true})`);
+  await new Promise(r => setTimeout(r, 250));
+  ok('401 on the Analytics token itself → logout (no fallback left)',
+    d1.startsWith('REJECTED') && w.eval(`!$.atok && !$.tok`)
+    && !w.eval(`localStorage.getItem('u_atok')`) && toast().includes('Session expired'));
+
+  // E: our own pre-flight "No access token" is not a revoked session
+  ({ w } = await boot({ tokens: {}, settle: 800 }));
+  const e1 = await attempt(`upstoxFetch({base:API_BASE,path:'/v2/user/profile'},{_force:true})`);
+  ok('local "No access token" pre-flight is NOT an expired session',
+    /No access token/.test(e1) && w.eval(`$.authShiftAt===0`) && !toast().includes('Session expired'));
+
+  // F: an ordinary business error must leave the session alone
+  ({ w } = await boot({ tokens: BOTH, routes: [{ re: /DEMO_BIZ400/, status: 400, body: { status: 'error', errors: [{ errorCode: 'UDAPI1074', message: 'The financial_year is invalid' }] } }], settle: 800 }));
+  const f1 = await attempt(`upstoxFetch({base:API_BASE,path:'/v2/trade/profit-loss/data'},{query:'?financial_year=DEMO_BIZ400',_force:true})`);
+  ok('non-auth 400 leaves the session untouched (no demote, no logout)',
+    f1.startsWith('REJECTED') && held() && !toast().includes('Session expired'));
+
+  // G: 403 is a scope/permission problem, not an expiry
+  ({ w } = await boot({ tokens: BOTH, routes: [{ re: /DEMO_403/, status: 403, body: { status: 'error', errors: [{ message: 'Forbidden for this token' }] } }], settle: 800 }));
+  const g1 = await attempt(`upstoxFetch({base:API_BASE,path:'/v2/user/profile'},{query:'?x=DEMO_403',_force:true})`);
+  ok('403 (scope/permission) is NOT treated as an expired session',
+    g1.startsWith('REJECTED') && held() && !toast().includes('Session expired'));
+
+  // H: a bare 401 with a generic body still ends the session (status-driven)
+  ({ w } = await boot({ tokens: DAY, routes: [{ re: /DEMO_HARD401/, status: 401, body: { status: 'error', errors: [{ message: 'Something went wrong' }] } }], settle: 800 }));
+  const h1 = await attempt(`upstoxFetch({base:API_BASE,path:'/v2/user/profile'},{query:'?x=DEMO_HARD401',_force:true})`);
+  await new Promise(r => setTimeout(r, 250));
+  ok('bare HTTP 401 with a generic message still ends the session',
+    h1.startsWith('REJECTED') && w.eval(`!$.tok`) && toast().includes('Session expired'));
+
+  // I: "contract has expired" is an instrument error, not a session error
+  ({ w } = await boot({ tokens: BOTH, routes: [{ re: /DEMO_EXPIRY/, status: 400, body: { status: 'error', errors: [{ message: 'UDAPI1509: The contract has expired' }] } }], settle: 800 }));
+  const i1 = await attempt(`upstoxFetch({base:API_BASE,path:'/v3/order/place'},{method:'POST',body:{},query:'?x=DEMO_EXPIRY',_force:true})`);
+  ok('"contract has expired" (instrument error) is not a session expiry',
+    i1.startsWith('REJECTED') && held() && !toast().includes('Session expired'));
+
   process.exit(report('CORE SMOKE+SHIFT TESTS', R) ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });
