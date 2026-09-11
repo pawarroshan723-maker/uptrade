@@ -50,8 +50,8 @@ The login card offers:
 
 1. **API key + secret + redirect URI** → opens the Upstox authorize page in a new tab (`noopener`); you paste the `code` from the redirect back into "STEP 2" and hit **Exchange**. The secret is kept in `sessionStorage` only and wiped immediately after the exchange. ⚠️ The UI (and the audit) recommend exchanging the code on a server you control for anything beyond personal use.
 2. **Access token paste** → paste a token generated elsewhere (e.g. Upstox API playground or your own backend). Simplest and secret-free.
-3. **Analytics token paste** → a **1-year read-only** token generated once from the [Upstox Developer Apps page](https://account.upstox.com/developer/apps#analytics). It powers market data only — quotes, charts, option chain, news, search and the market WebSocket — with no daily re-authorization. Trading and portfolio APIs stay locked until you connect a daily token; logout clears it.
-4. Tokens live in `sessionStorage` (`u_tok` daily, `u_atok` analytics) for the tab's lifetime only. Upstox daily tokens expire (~3:30 AM IST); the app detects expiry and returns you to login. Logging out also invalidates the daily token server-side (`DELETE /v2/logout`, best-effort).
+3. **Analytics token paste** → a **1-year read-only** token generated once from the [Upstox Developer Apps page](https://account.upstox.com/developer/apps#analytics). It powers market data only — quotes, charts, option chain, news, search and the market WebSocket — with no daily re-authorization. Trading and portfolio APIs stay locked until you connect a daily token.
+4. **Token fallback ("token-shift")**: the analytics token is **persistent** (`localStorage`, survives reloads and browser restarts) and is always staged as the fallback. If the daily token is missing or expires (detected at boot, on init failures, and on WebSocket auth errors), the app **automatically shifts to the analytics token** and keeps running in read-only market-data mode with a toast telling you to paste a fresh daily token to restore trading. Only when **neither** token is available do you land on the login screen. Logging out clears both (and invalidates the daily token server-side via `DELETE /v2/logout`, best-effort).
 
 ---
 
@@ -174,7 +174,7 @@ Main state containers (top of block 3):
 | Key | Storage | Contents | Cleared when |
 |---|---|---|---|
 | `u_tok` | `sessionStorage` | daily access token | logout (incl. server-side invalidation) / tab close / detected expiry |
-| `u_atok` | `sessionStorage` | Analytics token (1-year, read-only market data) | logout / tab close |
+| `u_atok` | `localStorage` + `sessionStorage` | Analytics token (1-year, read-only market data) — **persistent fallback**: auto-restored and auto-used whenever the daily token is missing/expired | logout (explicit) |
 | `u_as` | `sessionStorage` | API secret (exchange step only) | immediately after token exchange |
 | `u_ak`, `u_ru` | `localStorage` | API key + redirect URI (login convenience) | never (non-secret) |
 | `u_wl` | `localStorage` | watchlist instruments | edited in UI |

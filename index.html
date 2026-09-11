@@ -2381,18 +2381,20 @@ function aTok(){
   const t=document.getElementById('aT')?.value.trim()||'';
   const a=document.getElementById('aN')?.value.trim()||'';
   if(!t&&!a) return ts('Enter an access or analytics token','e');
+  /* TOKEN-SHIFT (2026-09-10): the Analytics token is the persistent fallback —
+     stored in localStorage (1-yr, read-only market data), it survives reloads
+     and automatically takes over whenever the daily token is missing/expired.
+     Pasting a fresh daily token no longer clears it. */
   if(t){
     if(t.length<20)return ts('That does not look like a valid access token','w');
-    $.tok=t;$.atok='';$.ro=false;
-    try{sessionStorage.setItem('u_tok',t);sessionStorage.removeItem('u_atok');}catch(e){}
+    $.tok=t;$.ro=false;
+    try{sessionStorage.setItem('u_tok',t);}catch(e){}
     const aT=document.getElementById('aT'); if(aT)aT.value='';
     init();return;
   }
-  /* AUDIT-API: Analytics token — 1-year validity, read-only (market data, news,
-     charts, option chain, market WS). Trading/portfolio APIs stay locked. */
   if(a.length<20)return ts('That does not look like a valid analytics token','w');
   $.atok=a;$.tok='';$.ro=true;
-  try{sessionStorage.setItem('u_atok',a);sessionStorage.removeItem('u_tok');}catch(e){}
+  try{sessionStorage.setItem('u_atok',a);localStorage.setItem('u_atok',a);sessionStorage.removeItem('u_tok');}catch(e){}
   const aN=document.getElementById('aN'); if(aN)aN.value='';
   init();
 }
@@ -2403,6 +2405,7 @@ function logout(){
   $.tok='';$.atok='';$.ro=false;
   sessionStorage.removeItem('u_tok');
   sessionStorage.removeItem('u_atok');
+  localStorage.removeItem('u_atok');
   sessionStorage.removeItem('u_as');
   localStorage.removeItem('u_tok');
   /* Stop every background feeder so a previous session cannot keep polling. */
@@ -2479,7 +2482,20 @@ async function init(){
     // FIX #45: ensure instrument master download available on startup
     setTimeout(()=>{ ensureInstrumentMasterOnStartup().catch(()=>{}); }, isAndroid?3000:1200);
   }catch(e){
-    if(/token|unauthor|401|auth|expired/i.test(e.message)){$.tok='';sessionStorage.removeItem('u_tok');}
+    const tokErr=/token|unauthor|401|auth|expired/i.test(e.message);
+    if(tokErr){$.tok='';sessionStorage.removeItem('u_tok');}
+    /* TOKEN-SHIFT: daily token dead (or a read-only session hitting any boot
+       error) with a persisted Analytics token → remain in the app in read-only
+       market-data mode instead of bouncing to the login screen. */
+    if($.atok&&(tokErr||$.ro===true)){
+      $.ro=true;
+      if(au)au.style.display='none';
+      if(ap)ap.classList.add('on');
+      initProTerminal();
+      ldWD();
+      ts('Daily token expired — shifted to Analytics token (read-only market data). Paste a fresh daily token to restore trading.','w');
+      return;
+    }
     if(ap)ap.classList.remove('on');
     if(au)au.style.display='flex';
     ts('Initialization failed: '+e.message,'e');
@@ -3573,8 +3589,8 @@ async function wsC(internal=false){
     ws.onclose=ev=>{if($.ws!==ws)return;$.ws=null;upWS(0);if(typeof wsLog==='function')wsLog('market','closed',ev);if($.chartLiveEnabled)chartSetLiveState('error','Reconnecting');/* The header index strip, inspector and OC fallback all ride this socket — reconnect whenever a session is active. */if(!$.tok)return;if($.wsOpenedAt&&Date.now()-$.wsOpenedAt>60000)$.wsReconnectAttempts=0;$.wsOpenedAt=0;const attempt=($.wsReconnectAttempts||0)+1;$.wsReconnectAttempts=attempt;const delay=Math.min(30000,1500*Math.pow(2,Math.min(attempt,4)));$.wsReconnectTimer=setTimeout(()=>wsC(true),delay);if(typeof wsKickAll==='function')wsKickAll('main closed'+(ev&&ev.code?' code='+ev.code:''));};
     ws.onerror=()=>{if($.ws===ws){if($.chartLiveEnabled)chartSetLiveState('error','Feed error');if(!internal)ts('Market WebSocket error','e');}};
   }catch(e){$.wsConnecting=false;upWS(0);if($.chartLiveEnabled)chartSetLiveState('error','Feed unavailable');if(!internal)ts('Market WebSocket: '+e.message,'e');else console.warn('Shared WebSocket',e.message);if(typeof wsLog==='function')wsLog('market','connect failed',e.message);
-    if(/invalid token|unauthor|expired/i.test(e.message)){$.wsAuthFailStreak=($.wsAuthFailStreak||0)+1;if($.wsAuthFailStreak===5)ts('Market feed stopped — access token looks expired. Log in again.','e');}else $.wsAuthFailStreak=0;
-    if($.tok&&($.wsAuthFailStreak||0)<5){const attempt=($.wsReconnectAttempts||0)+1;$.wsReconnectAttempts=attempt;clearTimeout($.wsReconnectTimer);$.wsReconnectTimer=setTimeout(()=>wsC(true),Math.min(30000,1500*Math.pow(2,Math.min(attempt,4))));}}
+    if(/invalid.*token|unauthor|expired|access token|http\s*401/i.test(e.message)){$.wsAuthFailStreak=($.wsAuthFailStreak||0)+1;/* TOKEN-SHIFT: dead daily token + staged Analytics token → demote, retries ride the 1-yr RO token */if($.atok&&$.tok){$.tok='';sessionStorage.removeItem('u_tok');$.wsAuthFailStreak=0;$.ro=true;ts('Daily token expired — market feed shifted to Analytics token (read-only)','w');}else if($.wsAuthFailStreak===5)ts('Market feed stopped — access token looks expired. Log in again.','e');}else $.wsAuthFailStreak=0;
+    if(($.tok||$.atok)&&($.wsAuthFailStreak||0)<5){const attempt=($.wsReconnectAttempts||0)+1;$.wsReconnectAttempts=attempt;clearTimeout($.wsReconnectTimer);$.wsReconnectTimer=setTimeout(()=>wsC(true),Math.min(30000,1500*Math.pow(2,Math.min(attempt,4))));}}
 }
 function addW(k,s,x,meta={}){const item=normalizeWatchItem({...meta,k,s,x,n:meta.n||s});if(!item)return ts('This instrument cannot be added because its instrument key is invalid','e');$.wl=sanitizeWatchlist($.wl,{fallback:false,save:false});if($.wl.some(w=>w.k===item.k))return ts(`${item.s} is already in the watchlist`,'i');$.wl.push(item);persistWatchlist();rnW();ldWQ();wsSend('sub',[item.k],'full');}
 function addWInstrument(inst){inst=normalizeInstrument(inst);if(!inst)return;addW(inst.k,inst.s,inst.x,inst);document.getElementById('gS').value='';gSh();}
@@ -4133,7 +4149,7 @@ function ocTryReconnect(){
   ocConnectWS().catch(e=>{
     if(typeof wsLog==='function')wsLog('option-chain','reconnect failed',e&&e.message);
     ocEnableFallback('dedicated reconnect failed: '+(e&&e.message));
-    if(/invalid token|unauthor|expired/i.test(String(e&&e.message))){OC.wantLive=false;const txt=document.getElementById('ocLiveTxt');if(txt)txt.textContent='Session expired';ts('Option feed stopped — token expired. Log in again.','e');return;}
+    if(/invalid.*token|unauthor|expired|access token|http\s*401/i.test(String(e&&e.message))){if($.atok&&$.tok){$.tok='';sessionStorage.removeItem('u_tok');$.ro=true;ts('Daily token expired — option feed shifted to Analytics token (read-only)','w');}else{OC.wantLive=false;const txt=document.getElementById('ocLiveTxt');if(txt)txt.textContent='Session expired';ts('Option feed stopped — token expired. Log in again.','e');return;}}
     if(!OC.wantLive||OC.reconnectTimer)return;
     const attempt=(OC.wsAttempts||0)+1;OC.wsAttempts=attempt;
     if(attempt>8){const txt=document.getElementById('ocLiveTxt');if(txt)txt.textContent='Stopped — press Start live';return;}
@@ -4560,8 +4576,15 @@ window.addEventListener('DOMContentLoaded',()=>{
   }
   const secret=document.getElementById('aS');if(secret)secret.value='';buildFinancialYears();
   const expiry=document.getElementById('ocE');if(expiry)expiry.value='';
-  const token=sessionStorage.getItem('u_tok');if(token&&!$.tok){$.tok=token;init();}
-  else{const atok=sessionStorage.getItem('u_atok');if(atok&&!$.tok&&!$.atok){$.atok=atok;init();}}
+  /* TOKEN-SHIFT boot: daily token from sessionStorage; Analytics token from
+     sessionStorage OR localStorage (persistent). Daily wins when present; the
+     analytics token is always staged as fallback and takes over automatically
+     if the daily one is missing or expires mid-session. With neither: stay. */
+  const token=sessionStorage.getItem('u_tok');
+  const atok=sessionStorage.getItem('u_atok')||localStorage.getItem('u_atok')||'';
+  if(atok&&!$.atok)$.atok=atok;
+  if(token&&!$.tok){$.tok=token;init();}
+  else if($.atok){init();}
 });
 
 /* ================= SECTION 4: runtime error guard ================= */
