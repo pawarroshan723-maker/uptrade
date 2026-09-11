@@ -1603,7 +1603,7 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
 
 <div class="pg compact-page" id="pg-pnl">
   <div class="page-head"><div><div class="page-title">📑 Profit &amp; Loss</div><div class="page-sub">Realised trade-wise report</div></div><div class="page-actions"><button type="button" class="icon-btn" onclick="ldPl()">↻</button></div></div>
-  <section class="cd filter-bar"><div class="compact-form-grid pnl-form-grid"><div class="fgrp"><label>Segment</label><select class="fi" id="plS"><option value="EQ">Equity</option><option value="FO">F&amp;O</option></select></div><div class="fgrp"><label>Financial year</label><select class="fi" id="plY"><option value="">Loading years…</option></select></div><div class="fgrp form-action"><label>&nbsp;</label><button type="button" class="btn bp" onclick="ldPl()">Load report</button></div></div></section>
+  <section class="cd filter-bar"><div class="compact-form-grid pnl-form-grid"><div class="fgrp"><label>Segment</label><select class="fi" id="plS"><option value="EQ">Equity</option><option value="FO">F&amp;O</option><option value="COM">Commodity</option><option value="CD">Currency derivatives</option></select></div><div class="fgrp"><label>Financial year</label><select class="fi" id="plY"><option value="">Loading years…</option></select></div><div class="fgrp form-action"><label>&nbsp;</label><button type="button" class="btn bp" onclick="ldPl()">Load report</button></div></div></section>
   <section class="cd result-card" id="plChCard" style="display:none"><div class="list-toolbar"><b>Charges breakdown — selected segment &amp; FY</b><span id="plChTotal" style="font-weight:700"></span></div><div class="cb" id="plCh"><span class="muted-note">Load a report to fetch charges.</span></div></section>
   <section class="cd result-card"><div class="cb" id="plB"><div class="large-empty compact-empty"><div class="empty-icon">📑</div><b>No report loaded</b><span>Select a segment and financial year.</span></div></div></section>
 </div>
@@ -4324,9 +4324,27 @@ function ocToggleFS(){const el=document.getElementById('ocWrap');if(!document.fu
 
 function buildFinancialYears(){const now=new Date(),start=now.getMonth()>=3?now.getFullYear():now.getFullYear()-1,select=document.getElementById('plY');if(!select)return;select.innerHTML=Array.from({length:6},(_,i)=>{const y=start-i,key=String(y).slice(-2)+String(y+1).slice(-2);return `<option value="${key}">${y}-${String(y+1).slice(-2)}</option>`;}).join('');}
 async function ldPl(){
-  if(!$.tok)return;
-  const box=document.getElementById('plB');box.innerHTML='<div class="ld"><div class="sp"></div></div>';const segment=document.getElementById('plS').value,fy=document.getElementById('plY').value;if(!fy)return;try{ldPlCharges(segment,fy);}catch(e){}
-  try{const base=`?segment=${encodeURIComponent(segment)}&financial_year=${encodeURIComponent(fy)}`,meta=await upstoxFetch(END.PNL_META,{query:base}),count=toNum(meta.data?.trades_count),limit=Math.max(1,toNum(meta.data?.page_size_limit,5000));if(!count){box.innerHTML='<div class="large-empty compact-empty"><div class="empty-icon">📑</div><b>No realised trades</b><span>There are no trades for this segment and financial year.</span></div>';return;}const size=Math.min(count,limit,1000),data=await upstoxFetch(END.PNL_DATA,{query:`${base}&page_number=1&page_size=${size}`}),rows=Array.isArray(data.data)?data.data:[],pnl=rows.reduce((a,r)=>a+toNum(r.sell_amount)-toNum(r.buy_amount),0);box.innerHTML=`<div class="sg"><div class="sc"><div class="sl">Trades</div><div class="sv">${count}</div></div><div class="sc"><div class="sl">Loaded</div><div class="sv">${rows.length}</div></div><div class="sc"><div class="sl">Gross Realised</div><div class="sv">${fp(pnl)}</div></div></div>${count>size?`<div class="sigc hsg">Showing the first ${size.toLocaleString('en-IN')} of ${count.toLocaleString('en-IN')} trades.</div>`:''}<div class="tc"><table class="dt"><thead><tr><th>Scrip</th><th>Type</th><th>Qty</th><th>Buy date</th><th>Buy avg</th><th>Sell date</th><th>Sell avg</th><th>P&amp;L</th></tr></thead><tbody>${rows.map(r=>{const p=toNum(r.sell_amount)-toNum(r.buy_amount);return `<tr><td>${escapeHtml(r.scrip_name||r.isin||'-')}</td><td>${escapeHtml(r.trade_type||'-')}</td><td>${toNum(r.quantity)}</td><td>${escapeHtml(r.buy_date||'-')}</td><td>${fmtP(r.buy_average)}</td><td>${escapeHtml(r.sell_date||'-')}</td><td>${fmtP(r.sell_average)}</td><td>${fp(p)}</td></tr>`;}).join('')}</tbody></table></div>`;}catch(e){box.innerHTML=`<div class="emp"><div class="ed">${escapeHtml(e.message)}</div></div>`;}
+  if(!$.tok){ts('Trade P&L is daily-token only — Upstox serves it to analytics tokens only from a whitelisted static IP','w');return;}
+  const box=document.getElementById('plB');const segment=document.getElementById('plS').value,fy=document.getElementById('plY').value;
+  if(!fy){box.innerHTML='<div class="emp"><div class="ed">Pick a financial year first.</div></div>';return;}
+  box.innerHTML='<div class="ld"><div class="sp"></div></div>';
+  try{ldPlCharges(segment,fy);}catch(e){}
+  try{
+    const base=`?segment=${encodeURIComponent(segment)}&financial_year=${encodeURIComponent(fy)}`,meta=await upstoxFetch(END.PNL_META,{query:base}),count=toNum(meta.data?.trades_count),limit=Math.max(1,toNum(meta.data?.page_size_limit,5000));
+    if(!count){box.innerHTML='<div class="large-empty compact-empty"><div class="empty-icon">📑</div><b>No realised trades</b><span>There are no trades for this segment and financial year.</span></div>';return;}
+    const pageSize=Math.min(count,limit),maxPages=Math.min(20,Math.ceil(count/pageSize));
+    let rows=[],page=0;
+    while(page<maxPages){
+      page++;
+      const d=await upstoxFetch(END.PNL_DATA,{query:`${base}&page_number=${page}&page_size=${pageSize}`});
+      const part=Array.isArray(d.data)?d.data:[];
+      rows=rows.concat(part);
+      if(part.length<pageSize)break;
+    }
+    const pnl=rows.reduce((a,r)=>a+toNum(r.sell_amount)-toNum(r.buy_amount),0),shown=rows.slice(0,1000);
+    const note=count>rows.length?`<div class="sigc hsg">Loaded ${rows.length.toLocaleString('en-IN')} of ${count.toLocaleString('en-IN')} trades — totals cover the loaded trades.</div>`:(shown.length<rows.length?`<div class="sigc hsg">Showing the first ${shown.length.toLocaleString('en-IN')} of ${rows.length.toLocaleString('en-IN')} loaded trades — totals cover all loaded trades.</div>`:'');
+    box.innerHTML=`<div class="sg"><div class="sc"><div class="sl">Trades</div><div class="sv">${count}</div></div><div class="sc"><div class="sl">Loaded</div><div class="sv">${rows.length}</div></div><div class="sc"><div class="sl">Gross Realised</div><div class="sv">${fp(pnl)}</div></div></div>${note}<div class="tc"><table class="dt"><thead><tr><th>Scrip</th><th>Type</th><th>Qty</th><th>Buy date</th><th>Buy avg</th><th>Sell date</th><th>Sell avg</th><th>P&amp;L</th></tr></thead><tbody>${shown.map(r=>{const p=toNum(r.sell_amount)-toNum(r.buy_amount);return `<tr><td>${escapeHtml(r.scrip_name||r.isin||'-')}</td><td>${escapeHtml(r.trade_type||'-')}</td><td>${toNum(r.quantity)}</td><td>${escapeHtml(r.buy_date||'-')}</td><td>${fmtP(r.buy_average)}</td><td>${escapeHtml(r.sell_date||'-')}</td><td>${fmtP(r.sell_average)}</td><td>${fp(p)}</td></tr>`;}).join('')}</tbody></table></div>`;
+  }catch(e){box.innerHTML=`<div class="emp"><div class="ed">${escapeHtml(e.message)}</div></div>`;}
 }
 
 
@@ -6790,7 +6808,7 @@ async function ldPlCharges(segment,fy){
     const row=(l,v)=>`<tr><td>${escapeHtml(l)}</td><td style="text-align:right">${fp(v)}</td></tr>`;
     box.innerHTML=`<div class="tc"><table class="dt"><tbody>
       ${row('Brokerage',c.brokerage)}${row('GST',tx.gst)}${row('STT',tx.stt)}${row('Stamp duty',tx.stamp_duty)}
-      ${row('Transaction',ch.transaction)}${row('Clearing',ch.clearing)}${row('SEBI turnover',ch.sebi_turnover)}${row('Demat transaction',ch.demat_transaction)}${row('Other',ch.others)}
+      ${row('Transaction',ch.transaction)}${row('Clearing',ch.clearing)}${row('IPFT',ch.ipft)}${row('SEBI turnover',ch.sebi_turnover)}${row('Demat transaction',ch.demat_transaction)}${row('Other',ch.others)}
     </tbody></table></div>`;
     if(tot)tot.textContent='Total '+fp(c.total);
   }catch(e){box.innerHTML=`<span class="muted-note">Charges unavailable: ${escapeHtml(String(e.message||e))}</span>`;}
