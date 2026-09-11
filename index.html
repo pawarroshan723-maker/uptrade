@@ -6849,16 +6849,19 @@ async function ldMarketStatus(){
   try{
     const res=await Promise.allSettled([
       upstoxFetch({base:API_BASE,path:'/v2/market/status/NSE'}),
-      upstoxFetch({base:API_BASE,path:'/v2/market/status/MCX_FO'})
+      upstoxFetch({base:API_BASE,path:'/v2/market/status/MCX'})
     ]);
     const pick=r=>r.status==='fulfilled'?r.value?.data:null;
     const nse=pick(res[0]),mcx=pick(res[1]);
     $.mktStatus={nse,mcx};
-    const isOpen=d=>/OPEN/.test(String(d?.status||''));
-    const nseOpen=isOpen(nse),mcxOpen=isOpen(mcx);
-    const anyOpen=nseOpen||mcxOpen;
-    txt.textContent=anyOpen?(nseOpen&&mcxOpen?'Mkt LIVE':nseOpen?'NSE live':'MCX live'):'Mkt CLOSED';
-    chip.className='hst '+(anyOpen?'ok':'off');
+    /* Appendix values: NORMAL_OPEN | NORMAL_CLOSE | PRE_OPEN_START | PRE_OPEN_END | CLOSING_START | CLOSING_END.
+       Live = continuous session or closing phase; pre-open gets its own label. (Exchange appendix: commodity status key is MCX — MCX_FO is an instrument segment, UDAPI1089 on this endpoint.) */
+    const st=d=>String(d?.status||'');
+    const isOpen=d=>/(NORMAL_OPEN|CLOSING_START)/.test(st(d));
+    const isPre=d=>/PRE_OPEN_START/.test(st(d));
+    const nseOpen=isOpen(nse),mcxOpen=isOpen(mcx),preOpen=!nseOpen&&!mcxOpen&&(isPre(nse)||isPre(mcx));
+    txt.textContent=nseOpen&&mcxOpen?'Mkt LIVE':nseOpen?'NSE live':mcxOpen?'MCX live':preOpen?'Pre-open':'Mkt CLOSED';
+    chip.className='hst '+((nseOpen||mcxOpen||preOpen)?'ok':'off');
     const fmt=d=>d?`${d.exchange}: ${d.status}${d.cas_eligible_status?.status?` · CAS ${d.cas_eligible_status.status}`:''}${d.last_updated?` · since ${new Date(d.last_updated).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`:''}`:'n/a';
     chip.title=`Exchange status${String.fromCharCode(10)}• ${fmt(nse)}${String.fromCharCode(10)}• ${fmt(mcx)}`;
   }catch(e){/* silent — chip stays stale, feed chips carry the signal */}
