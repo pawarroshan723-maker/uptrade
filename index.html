@@ -2027,7 +2027,7 @@ async function instrumentSearchAPI(query,contextId){
   if($.instrumentCache.size>120)$.instrumentCache.delete($.instrumentCache.keys().next().value);
   return items;
 }
-async function searchInstruments(query,contextId){const local=instrumentLocalResults(query,contextId,20);if(!$.tok||query.trim().length<2)return local;try{return instrumentDedupeRank([...local,...await instrumentSearchAPI(query,contextId)],query,30);}catch(e){console.warn('Instrument search API',e.message);return local;}}
+async function searchInstruments(query,contextId){const local=instrumentLocalResults(query,contextId,20);if(!$.tok&&!$.atok||query.trim().length<2)return local;try{return instrumentDedupeRank([...local,...await instrumentSearchAPI(query,contextId)],query,30);}catch(e){console.warn('Instrument search API',e.message);return local;}}
 function instrumentMetaLine(inst){const parts=[inst.segment||inst.x,inst.type];const exp=instrumentExpiryLabel(inst);if(exp)parts.push(exp);if(inst.strike)parts.push(`Strike ${inst.strike}`);return parts.filter(Boolean).join(' • ');}
 
 const INSTRUMENT_CACHE_DB='UpTradeProCache',INSTRUMENT_CACHE_STORE='assets',INSTRUMENT_CACHE_KEY='instrument_master_v1';
@@ -2729,7 +2729,7 @@ function anySharedMarketOpen(){if(marketHoursOpen(''))return true;const keys=[..
 function ocMarketOpen(){return marketHoursOpen(typeof OC!=='undefined'?(OC.underKey||''):'');}
 function chartMarketOpen(){return marketHoursOpen($.cKey||'');}
 async function chartFetchFreshIntraday(url){return proSchedule(async()=>{const bearer=$.tok||$.atok;let error;for(let attempt=0;attempt<3;attempt++){proHubProgress();try{PRO_HUB.requests++;proHubStatus('busy');const ctrl=typeof AbortController!=='undefined'?new AbortController():null;const to=ctrl?setTimeout(()=>ctrl.abort(),15000):null;const r=await fetch(url,{headers:{Authorization:`Bearer ${bearer}`,Accept:'application/json'},signal:ctrl?.signal});if(to)clearTimeout(to);const raw=await r.text();let d={};try{d=JSON.parse(raw);}catch{d={message:raw.slice(0,250)};}if(!r.ok||d.status==='error')throw new Error(d.errors?.[0]?.message||d.message||`HTTP ${r.status}`);PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;proHubStatus();return d;}catch(e){error=e;if(e.name==='AbortError')error=new Error('Chart intraday timeout after 15s — will retry');const retry=/429|network|cors|http 5|rate|too many|timeout/i.test(error.message);if(!retry||attempt===2)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)));}}PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');throw error;});}
-async function chartReconcileIntraday(){if($.chartReconcileBusy||!$.tok||!$.cKey||$.chartLoading)return;const cfg=TFS.find(x=>x.id===$.cTF);if(!cfg||!['minutes','hours','days'].includes(cfg.unit))return;const symKey=$.cKey,tfId=$.cTF;$.chartReconcileBusy=true;try{const url=`${API_BASE}${END.HIST_INTRA}/${encodeURIComponent(symKey)}/${cfg.unit}/${cfg.iv}`,started=Date.now(),d=await chartFetchFreshIntraday(url),fresh=chartParseCandles(d.data?.candles||[]);if(!fresh.length||$.cKey!==symKey||$.cTF!==tfId)return;const map=new Map(($.cd||[]).map(x=>[x.t.getTime(),x])),lastKey=$.cd?.at(-1)?.t?.getTime();fresh.forEach(x=>{const key=x.t.getTime(),old=map.get(key);if(old&&key===lastKey&&old.live){map.set(key,{...x,h:Math.max(x.h,old.h),l:Math.min(x.l,old.l),c:$.chartLastTickMs>=started?old.c:x.c,v:Math.max(x.v,old.v),live:true,reconciled:true});}else map.set(key,{...x,reconciled:true});});$.cd=[...map.values()].sort((a,b)=>a.t-b.t).slice(-1800);$.chartLastReconcile=Date.now();const src=document.getElementById('cSource');if(src)src.textContent=`Historical + intraday canonical • reconciled ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;chartUpdateMeta();chartScheduleDraw();}
+async function chartReconcileIntraday(){if($.chartReconcileBusy||(!$.tok&&!$.atok)||!$.cKey||$.chartLoading)return;const cfg=TFS.find(x=>x.id===$.cTF);if(!cfg||!['minutes','hours','days'].includes(cfg.unit))return;const symKey=$.cKey,tfId=$.cTF;$.chartReconcileBusy=true;try{const url=`${API_BASE}${END.HIST_INTRA}/${encodeURIComponent(symKey)}/${cfg.unit}/${cfg.iv}`,started=Date.now(),d=await chartFetchFreshIntraday(url),fresh=chartParseCandles(d.data?.candles||[]);if(!fresh.length||$.cKey!==symKey||$.cTF!==tfId)return;const map=new Map(($.cd||[]).map(x=>[x.t.getTime(),x])),lastKey=$.cd?.at(-1)?.t?.getTime();fresh.forEach(x=>{const key=x.t.getTime(),old=map.get(key);if(old&&key===lastKey&&old.live){map.set(key,{...x,h:Math.max(x.h,old.h),l:Math.min(x.l,old.l),c:$.chartLastTickMs>=started?old.c:x.c,v:Math.max(x.v,old.v),live:true,reconciled:true});}else map.set(key,{...x,reconciled:true});});$.cd=[...map.values()].sort((a,b)=>a.t-b.t).slice(-1800);$.chartLastReconcile=Date.now();const src=document.getElementById('cSource');if(src)src.textContent=`Historical + intraday canonical • reconciled ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;chartUpdateMeta();chartScheduleDraw();}
   catch(e){console.warn('Chart reconciliation',e.message);}finally{$.chartReconcileBusy=false;}}
 function scheduleChartReconciliation(){clearInterval($.chartReconcileTimer);const cfg=TFS.find(x=>x.id===$.cTF);if(!cfg||!['minutes','hours','days'].includes(cfg.unit))return;const fixed=chartIntervalMs(cfg),period=Math.max(300000,Math.min(900000,fixed||900000));$.chartReconcileTimer=setInterval(()=>{if($.chartLiveEnabled&&document.getElementById('pg-chart')?.classList.contains('on')&&chartMarketOpen())chartReconcileIntraday();},period);}
 
@@ -3989,7 +3989,7 @@ function analyzeInstrumentNews(articles=[]){
 }
 
 async function upstoxFetchNews(category='instrument_keys',instrumentKeys=[],pageNumber=1,pageSize=20){
-  if(!$.tok)throw new Error('No access token — log in first');
+  const bearer=$.tok||$.atok;if(!bearer)throw new Error('No access token');
   const params=new URLSearchParams({category,page_number:String(pageNumber),page_size:String(pageSize)});
   if(category==='instrument_keys'&&instrumentKeys?.length)params.set('instrument_keys',instrumentKeys.slice(0,30).join(','));
   return await upstoxFetch(END.NEWS,{query:'?'+params.toString()});
@@ -4097,7 +4097,7 @@ async function ocLoadExpiries(){
   }catch(e){}
   /* MCX underlyings build their chain client-side. */
   if(mcxSelected())return mcxLoadExpiries();
-  if(!$.tok)return ts('Log in to load option chains','w');
+  if(!$.tok&&!$.atok)return ts('Connect a token (daily or analytics) to load option chains','w');
   const sel=gDD('dOC');if(!sel)return ts('Select an index from the dropdown','e');OC.underKey=sel.k;const request=(OC.expirySeq||0)+1;OC.expirySeq=request;const requestedKey=sel.k;
   try{
     const d=await upstoxFetch(END.OPT_CONTRACT,{query:`?instrument_key=${encodeURIComponent(sel.k)}`});if(request!==OC.expirySeq||OC.underKey!==requestedKey)return;const exps=[...new Set((d.data||[]).map(x=>x.expiry).filter(e=>/^\d{4}-\d{2}-\d{2}$/.test(e)))].sort();if(!exps.length)throw new Error('No option contracts returned — this underlying may not be in the F&O segment');
@@ -4123,7 +4123,7 @@ function prepareOCChain(raw,mode){
 }
 async function ldOC(){
   if(mcxSelected())return mcxLdOC(false);
-  if(!$.tok)return ts('Log in first','w');
+  if(!$.tok&&!$.atok)return ts('Connect a token (daily or analytics) to load the option chain','w');
   const sel=gDD('dOC'),expiry=getSelectedExpiry();if(!sel)return ts('Select an index','e');if(!expiry)return ts('Load and select a valid expiry','e');ocDisconnect(true);OC.underKey=sel.k;const request=(OC.chainSeq||0)+1;OC.chainSeq=request;const requestedKey=sel.k;
   const cols=getOCSelectedCols().length*2+1;document.getElementById('ocBody').innerHTML=`<tr><td colspan="${cols}" style="padding:20px"><div class="ld"><div class="sp"></div></div></td></tr>`;
   try{const d=await upstoxFetch(END.OPT_CHAIN,{query:`?instrument_key=${encodeURIComponent(sel.k)}&expiry_date=${encodeURIComponent(expiry)}`});if(request!==OC.chainSeq||OC.underKey!==requestedKey)return;const state=prepareOCChain(d.data,'rest');OC.keys=[];renderOCLiveTable(OC.filtered,state.atmPos,false);ts(`${OC.chain.length} strikes loaded; showing ${OC.filtered.length}`,'s');}catch(e){if(request!==OC.chainSeq||OC.underKey!==requestedKey)return;ts('Option chain: '+e.message,'e');document.getElementById('ocBody').innerHTML=`<tr><td colspan="${cols}" style="padding:20px;text-align:center">${escapeHtml(e.message)}</td></tr>`;}
@@ -4132,7 +4132,7 @@ async function ldOC(){
 async function ldOC_WS(){
   ocStopPoll(true);                  /* poll mode and the live WS are exclusive */
   if(mcxSelected())return mcxLdOC(true);
-  if(!$.tok)return ts('Log in first','w');
+  if(!$.tok&&!$.atok)return ts('Connect a token (daily or analytics) to go live','w');
   const sel=gDD('dOC'),expiry=getSelectedExpiry();if(!sel)return ts('Select an index','e');if(!expiry)return ts('Load and select a valid expiry','e');const mode=document.getElementById('ocMode').value||'full';OC.underKey=sel.k;
   const cols=getOCSelectedCols().length*2+1;document.getElementById('ocBody').innerHTML=`<tr><td colspan="${cols}" style="padding:20px"><div class="ld"><div class="sp"></div></div>Loading chain…</td></tr>`;
   try{const d=await upstoxFetch(END.OPT_CHAIN,{query:`?instrument_key=${encodeURIComponent(sel.k)}&expiry_date=${encodeURIComponent(expiry)}`});const state=prepareOCChain(d.data,mode);const keys=[sel.k];OC.filtered.forEach(r=>{if(r.call_options?.instrument_key)keys.push(r.call_options.instrument_key);if(r.put_options?.instrument_key)keys.push(r.put_options.instrument_key);});OC.keys=[...new Set(keys)];if(mode==='full_d30'&&OC.keys.length>50){const byDist=OC.filtered.slice().sort((a,b)=>Math.abs(toNum(a.strike_price)-OC.atm)-Math.abs(toNum(b.strike_price)-OC.atm)),trimmed=[sel.k];for(const r of byDist){if(trimmed.length>=49)break;if(r.call_options?.instrument_key)trimmed.push(r.call_options.instrument_key);if(r.put_options?.instrument_key)trimmed.push(r.put_options.instrument_key);}OC.keys=[...new Set(trimmed)].slice(0,50);ts(`Depth 30 cap: streaming ${OC.keys.length} keys nearest ATM; outer strikes stay REST-only`,'w');}renderOCLiveTable(OC.filtered,state.atmPos,true);OC.wantLive=true;OC.wsAttempts=0;OC.liveMode={};OC.maxDepthSeen=0;OC.grantNotified=false;OC.grantTicks=0;clearTimeout(OC.reconnectTimer);OC.reconnectTimer=null;await ocConnectWS();}catch(e){ts('Live option chain: '+e.message,'e');ocEnableFallback('start failed: '+e.message);}
@@ -4177,7 +4177,7 @@ function ocTryReconnect(){
 const WS_STALE_MS=30000;
 function wsWatchdog(){
   try{
-    if(document.hidden||!$.tok)return;
+    if(document.hidden||(!$.tok&&!$.atok))return;
     const now=Date.now(),offlineNow=navigator.onLine===false;
     /* offlineNow is certain death for every socket (cable pull leaves them
        OPEN with no close frame) — cycle at once instead of waiting. */
@@ -4218,7 +4218,7 @@ setInterval(wsWatchdog,500);
 function ocModeSel(){try{return document.getElementById('ocMode')?.value||'full';}catch(e){return 'full';}}
 function ocEnableFallback(reason){
   if(OC.fallback)return;
-  if(!$.tok||!(OC.keys&&OC.keys.length))return;
+  if((!$.tok&&!$.atok)||!(OC.keys&&OC.keys.length))return;
   OC.fallback=true;clearTimeout(OC.reconnectTimer);OC.reconnectTimer=null;
   /* AUDIT FIX: the shared market WS already carries watchlist/chart/index subs.
      full_d30 (50-key hard cap, dedicated-socket feature) must not be requested
@@ -4518,9 +4518,9 @@ async function proInspectorNews(){
   }catch(e){ts('News error: '+e.message,'e');}
 }
 function proInspectorNeedsExpiry(inst){if(!inst||instrumentExpiryTime(inst)!=null)return false;const seg=String(inst.segment||'').toUpperCase(),type=String(inst.type||'').toUpperCase();return /_FO$|_COM$|CD_FO|_INDEX_FO/.test(seg)||seg.includes('FO')||['FUT','CE','PE','FUTURES','OPTIDX','OPTSTK','OPTFUT','FUTCOM','OPTCUR','FUTCUR'].includes(type);}
-async function proEnrichInspector(inst){try{proEnrichOptionLot(inst);if(!$.tok)return;if(proInspectorNeedsExpiry(inst)){const params=new URLSearchParams({query:inst.s,page_number:'1',records:'30'}),d=await upstoxFetch(END.INSTRUMENT_SEARCH,{query:'?'+params.toString()}),hit=(d.data||[]).find(x=>x.instrument_key===inst.k);if(!hit||$.activeInstrument?.k!==inst.k)return;const merged=normalizeInstrument(hit);if(!merged)return;$.activeInstrument={...inst,...merged,expiry:merged.expiry||inst.expiry,lot:merged.lot||inst.lot,strike:merged.strike||inst.strike};proRenderInspector();return;}
+async function proEnrichInspector(inst){try{proEnrichOptionLot(inst);if(!$.tok&&!$.atok)return;if(proInspectorNeedsExpiry(inst)){const params=new URLSearchParams({query:inst.s,page_number:'1',records:'30'}),d=await upstoxFetch(END.INSTRUMENT_SEARCH,{query:'?'+params.toString()}),hit=(d.data||[]).find(x=>x.instrument_key===inst.k);if(!hit||$.activeInstrument?.k!==inst.k)return;const merged=normalizeInstrument(hit);if(!merged)return;$.activeInstrument={...inst,...merged,expiry:merged.expiry||inst.expiry,lot:merged.lot||inst.lot,strike:merged.strike||inst.strike};proRenderInspector();return;}
 if(instrumentExpiryTime(inst)==null&&!inst.expiry)proInspectorNextExpiry(inst);}catch(e){console.warn('Inspector enrich',e.message);}}
-async function proInspectorNextExpiry(inst){try{if(!$.tok)return;$.nextExpiryCache=$.nextExpiryCache||new Map();let next=$.nextExpiryCache.get(inst.k);if(next===undefined){const d=await upstoxFetch(END.OPT_CONTRACT,{query:`?instrument_key=${encodeURIComponent(inst.k)}`}),rows=d.data||[];const today=localISODate?localISODate():new Date().toISOString().slice(0,10),exps=[...new Set(rows.map(r=>r.expiry).filter(Boolean))].sort();next=exps.find(e=>e>=today)||exps.at(-1)||null;$.nextExpiryCache.set(inst.k,next);}
+async function proInspectorNextExpiry(inst){try{if(!$.tok&&!$.atok)return;$.nextExpiryCache=$.nextExpiryCache||new Map();let next=$.nextExpiryCache.get(inst.k);if(next===undefined){const d=await upstoxFetch(END.OPT_CONTRACT,{query:`?instrument_key=${encodeURIComponent(inst.k)}`}),rows=d.data||[];const today=localISODate?localISODate():new Date().toISOString().slice(0,10),exps=[...new Set(rows.map(r=>r.expiry).filter(Boolean))].sort();next=exps.find(e=>e>=today)||exps.at(-1)||null;$.nextExpiryCache.set(inst.k,next);}
 if(!next||$.activeInstrument?.k!==inst.k)return;$.activeInstrument={...$.activeInstrument,nextExpiry:next};const el=document.getElementById('piExpiry');if(el&&(el.textContent==='—'||!el.textContent))el.textContent=`${next} • next`;}catch(e){$.nextExpiryCache?.set(inst.k,null);console.warn('Inspector next expiry',e.message);}}
 async function proLoadInspectorQuote(inst){try{const d=await upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(inst.k)}`});if($.activeInstrument?.k!==inst.k)return;const v=Object.values(d.data||{})[0];if(v){const last=toNum(v.last_price,NaN),cp=toNum(v.cp,NaN);$.inspectorQuote={k:inst.k,last_price:last,net_change:Number.isFinite(cp)?last-cp:0,cp:Number.isFinite(cp)?cp:null};proRenderInspector();}}catch(e){console.warn('Inspector quote',e.message);}}
 function proInspectorFeed(key,mf){if(key!==$.activeInstrument?.k)return;const lt=mf?.ltpc;if(lt?.ltp==null)return;const last=Number(lt.ltp),cp=toNum(lt.cp,NaN),change=Number.isFinite(cp)?last-cp:toNum($.inspectorQuote?.net_change);$.inspectorQuote={k:key,last_price:last,net_change:change,cp:Number.isFinite(cp)?cp:($.inspectorQuote?.cp??null)};if($.inspectorRenderTimer)return;$.inspectorRenderTimer=setTimeout(()=>{ $.inspectorRenderTimer=null;if($.inspectorQuote?.k!==$.activeInstrument?.k)return;const q=$.inspectorQuote,l=document.getElementById('piLtp'),c=document.getElementById('piChange');if(l)l.textContent=Number(q.last_price).toFixed(2);if(c){const prev=q.cp??(q.last_price-q.net_change),pct=prev?q.net_change/prev*100:0;c.textContent=`${q.net_change>=0?'+':''}${q.net_change.toFixed(2)} (${pct>=0?'+':''}${pct.toFixed(2)}%)`;c.className=q.net_change>=0?'pp':'pn';}},ocIsMobile()?350:150);}
@@ -4530,7 +4530,7 @@ function proInspectorFundamentals(){const i=$.activeInstrument;if(!i||!fundResol
 function proInspectorAddWatch(){if($.activeInstrument)addWInstrument($.activeInstrument);}
 function proUpdateMarket(key,ltp,cp){const m=PRO_MARKETS.find(x=>x.k===key);if(!m||!Number.isFinite(Number(ltp)))return;const last=Number(ltp),change=Number.isFinite(Number(cp))?last-Number(cp):toNum($.proMarkets?.[key]?.change),pct=Number(cp)?change/Number(cp)*100:0;$.proMarkets=$.proMarkets||{};$.proMarkets[key]={last,change,pct};const p=document.getElementById(m.p),c=document.getElementById(m.c);if(p)p.textContent=last.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});if(c){c.innerHTML=`<span class="pro-card-change">${change>=0?'+':''}${change.toFixed(2)}</span> <span class="pro-card-bracket">(</span><span class="pro-card-percent ${pct>=0?'pp':'pn'}">${pct>=0?'+':''}${pct.toFixed(2)}%</span><span class="pro-card-bracket">)</span>`;c.className=change>=0?'pp':'pn';}if(document.getElementById('pg-dash')?.classList.contains('on')&&!$.marketPulseTimer){$.marketPulseTimer=setTimeout(()=>{$.marketPulseTimer=null;renderProMarketPulse();},ocIsMobile()?600:250);}const market=PRO_MARKETS.find(x=>x.k===key);if(market)setTimeout(()=>syncMarketText(market),0);}
 function proMarketFeed(key,mf){const lt=mf?.ltpc;if(lt?.ltp!=null)proUpdateMarket(key,lt.ltp,lt.cp);proInspectorFeed(key,mf);}
-async function loadProMarkets(force=false){if(!$.tok)return;try{const keys=PRO_MARKETS.map(x=>x.k).join(','),d=await upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(keys)}`,_force:force});Object.values(d.data||{}).forEach(v=>proUpdateMarket(v.instrument_token,v.last_price,v.cp));loadProCardExpiries();}catch(e){if(!/no access token/i.test(e.message))console.warn('Market strip',e.message);}}
+async function loadProMarkets(force=false){if(!$.tok&&!$.atok)return;try{const keys=PRO_MARKETS.map(x=>x.k).join(','),d=await upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(keys)}`,_force:force});Object.values(d.data||{}).forEach(v=>proUpdateMarket(v.instrument_token,v.last_price,v.cp));loadProCardExpiries();}catch(e){if(!/no access token/i.test(e.message))console.warn('Market strip',e.message);}}
 function renderProMarketPulse(){const box=document.getElementById('dMarketPulse');if(!box)return;box.innerHTML=PRO_MARKETS.map(m=>{const x=$.proMarkets?.[m.k];return `<div class="pro-dash-row"><b>${escapeHtml(m.label||m.k.split('|')[1])}</b><span>${x?x.last.toLocaleString('en-IN',{maximumFractionDigits:2}):'—'}</span><span class="${(x?.change||0)>=0?'pp':'pn'}">${x?`${x.change>=0?'+':''}${x.change.toFixed(2)} <span class="pro-card-bracket">(</span>${x.pct>=0?'+':''}${Number(x.pct||0).toFixed(2)}%<span class="pro-card-bracket">)</span>`:'—'}</span></div>`;}).join('');}
 function renderProDashboard(freshOk=true){const pos=$.pos||[],hold=$.hld||[],orders=$.ords||[],risk=document.getElementById('dRisk'),holdBox=document.getElementById('dHoldPreview'),fresh=document.getElementById('dFresh'),state=document.getElementById('dRiskState');let gross=0,net=0;pos.forEach(p=>{const value=toNum(p.last_price)*toNum(p.quantity)*Math.max(1,toNum(p.multiplier,1));gross+=Math.abs(value);net+=value;});let portfolio=0,largest=0;hold.forEach(h=>{const value=toNum(h.last_price??h.close_price)*toNum(h.quantity);portfolio+=value;largest=Math.max(largest,value);});const concentration=portfolio?largest/portfolio*100:0,usedText=document.getElementById('dU')?.textContent||'0',availText=document.getElementById('dM')?.textContent||'0',used=toNum(usedText.replace(/[^0-9.-]/g,'')),avail=toNum(availText.replace(/[^0-9.-]/g,'')),marginRatio=used+avail?used/(used+avail)*100:0,riskScore=Math.min(100,marginRatio*.6+concentration*.4),riskLabel=riskScore>=70?'HIGH':riskScore>=40?'MODERATE':'LOW';if(state){state.textContent=riskLabel;state.className=riskScore>=70?'pn':riskScore>=40?'':'pp';}const posBox=document.getElementById('dTP'),orderBox=document.getElementById('dRO');if(posBox)posBox.innerHTML=pos.length?pos.slice().sort((a,b)=>Math.abs(toNum(b.pnl))-Math.abs(toNum(a.pnl))).slice(0,7).map(p=>`<div class="pro-dash-row"><b>${escapeHtml(symbolOf(p))}</b><span>${toNum(p.quantity)} @ ${fmtP(p.average_price)}</span><span class="${toNum(p.pnl)>=0?'pp':'pn'}">${fp(p.pnl)}</span></div>`).join(''):'<div class="emp"><div class="ed">No positions</div></div>';if(orderBox)orderBox.innerHTML=orders.length?orders.slice(0,7).map(o=>`<div class="pro-dash-row"><b>${escapeHtml(symbolOf(o))}</b><span class="${o.transaction_type==='BUY'?'pp':'pn'}">${escapeHtml(o.transaction_type||'—')} ${toNum(o.quantity)}</span><span>${escapeHtml(o.status||'—')}</span></div>`).join(''):'<div class="emp"><div class="ed">No orders</div></div>';if(risk)risk.innerHTML=`<div class="pro-risk-grid"><div class="pro-risk-item"><span>Gross exposure</span><b>${fm(gross)}</b></div><div class="pro-risk-item"><span>Net exposure</span><b>${fm(net)}</b></div><div class="pro-risk-item"><span>Portfolio value</span><b>${fm(portfolio)}</b></div><div class="pro-risk-item"><span>Concentration</span><b>${concentration.toFixed(1)}%</b></div></div><div class="pro-risk-meter"><i style="width:${riskScore.toFixed(0)}%"></i></div>`;if(holdBox)holdBox.innerHTML=hold.length?hold.slice().sort((a,b)=>toNum(b.last_price)*toNum(b.quantity)-toNum(a.last_price)*toNum(a.quantity)).slice(0,6).map(h=>{const value=toNum(h.last_price??h.close_price)*toNum(h.quantity),pnl=value-toNum(h.average_price)*toNum(h.quantity);return `<div class="pro-dash-row"><b>${escapeHtml(symbolOf(h))}</b><span>${fm(value)}</span><span class="${pnl>=0?'pp':'pn'}">${pnl>=0?'+':''}${fm(pnl)}</span></div>`;}).join(''):'<div class="emp"><div class="ed">No holdings</div></div>';if(fresh)fresh.textContent=freshOk?`Synced ${new Date().toLocaleTimeString()}`:'⚠ Sync failed — showing last known data';renderProMarketPulse();const sync=document.getElementById('psSync');if(sync)sync.textContent=freshOk?`Last sync ${new Date().toLocaleTimeString()}`:'Last sync failed';}
 function proRefreshCurrent(){proInvalidate();const page=document.querySelector('.pg.on')?.id?.replace('pg-','');({dash:ldD,orders:ldO,gtt:ldG,pos:ldP,hold:ldH,watch:ldWQ,funds:ldFn,pnl:ldPl,chart:ldCh,fund:()=>loadFundamentals(true),oc:ldOC})[page]?.();loadProMarkets(true);}
@@ -5971,7 +5971,7 @@ function ocWsBadge(){
    gets one quiet retry (falls back again on failure); the main reconnect also
    backfills candle gaps and revives the portfolio stream via its onopen. */
 function wsReviveAll(reason){
-  if(!$.tok)return;
+  if(!$.tok&&!$.atok)return;
   try{
     if(typeof wsLog==='function')wsLog('ws-manager','reviving all sockets ('+reason+')');
     const now=Date.now(),QUIET=30000;
@@ -5996,7 +5996,7 @@ function wsReviveAll(reason){
 function wsKickAll(reason){
   if(typeof wsLog==='function')wsLog('ws-manager','main WS down — auto re-triggering all sockets ('+reason+')');
   try{
-    if(typeof $==='undefined'||!$.tok)return;
+    if(typeof $==='undefined'||(!$.tok&&!$.atok))return;
     if(!$.pws||$.pws.readyState>1){$.pwsAttempts=0;connectPortfolioStream();}
     if(OC.wantLive&&!OC.ws&&!OC.fallback)ocEnableFallback('main WS down');
     if(OC.fallback){const t=document.getElementById('ocLiveTxt');if(t)t.textContent='Main WS fallback • reconnecting';}
@@ -6008,7 +6008,7 @@ function wsKickAll(reason){
 /* ================= SECTION 12: option-chain auto-load ================= */
   function ocAutoInit(){
     try{
-      if (typeof $ === 'undefined' || !$.tok || OC.underKey) return;
+      if (typeof $ === 'undefined' || (!$.tok&&!$.atok) || OC.underKey) return;
       const def = DB.find(x => x.k === 'NSE_INDEX|Nifty 50') || DB.find(x => String(x.k).includes('INDEX'));
       if (!def) return;
       const inst = normalizeInstrument(def); if (!inst) return;
@@ -6331,7 +6331,7 @@ function goLive(seq,inst){
 }
 window.ocQuickSwitch=function(i){
   const t=TABS[i];if(!t)return;
-  if(!$.tok)return ts('Log in to load option chains','w');
+  if(!$.tok&&!$.atok)return ts('Connect a token (daily or analytics) to go live','w');
   const seq=++qseq;
   if(t.grp){
     const sym=activeVariant(t).sym;
