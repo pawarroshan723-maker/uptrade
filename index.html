@@ -236,8 +236,10 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .quick-head,.list-toolbar{min-height:35px;padding:6px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--bd);font-size:10px;font-weight:650}
 .compact-form-grid{display:grid;grid-template-columns:repeat(6,minmax(90px,1fr));gap:7px;padding:9px 10px;align-items:end}.compact-form-grid .fgrp{margin:0}.compact-form-grid .span-2{grid-column:span 2}.compact-form-grid .fi{height:30px;padding:6px 8px}.compact-form-grid .form-action .btn{width:100%;height:30px;justify-content:center}.mini-toggle{height:30px;margin:0}.mini-toggle .tb{padding:4px 6px}
 .order-form-grid{grid-template-columns:minmax(190px,1.8fr) minmax(120px,1fr) repeat(8,minmax(78px,.72fr))}.order-form-grid .span-2{grid-column:span 1}.order-form-grid #oDerivHint{grid-column:1/-1}.ticket-hint{font-size:10px;color:var(--yl);background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.25);border-radius:6px;padding:6px 9px;display:inline-block;line-height:1.4}
-/* Pre-trade margin & charges estimator (order ticket) */
-.order-form-grid #oMarginRow{grid-column:1/-1;border-top:1px solid var(--bd);padding-top:8px;margin-top:2px;display:flex;gap:10px;align-items:flex-start}
+/* Pre-trade margin & charges estimator (order ticket).
+   The old #oMarginRow strip was replaced by the .ot-footer bar in the
+   #order-ticket-v2 style pack; the card/row/note styles below are still
+   used by the #oMarginR results box. */
 #oMarginBtn{white-space:nowrap;flex-shrink:0}
 .margin-results{flex:1;min-width:0;font-size:10px;color:var(--t2)}
 .margin-head{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px}
@@ -251,7 +253,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .margin-note{font-size:10px;color:var(--t3);margin-top:4px}
 .margin-err{font-size:10px;color:var(--rd)}
 .margin-loading{display:flex;align-items:center;gap:6px;color:var(--t3)}
-@media(max-width:700px){.order-form-grid #oMarginRow{flex-direction:column}}.gtt-form-grid{grid-template-columns:minmax(210px,2fr) repeat(5,minmax(105px,1fr))}.gtt-form-grid .span-2{grid-column:span 1}.algo-form-grid{grid-template-columns:minmax(240px,2fr) minmax(130px,1fr) minmax(130px,.8fr);max-width:760px}.pnl-form-grid{grid-template-columns:minmax(130px,1fr) minmax(150px,1fr) minmax(120px,.7fr);max-width:580px}
+.gtt-form-grid{grid-template-columns:minmax(210px,2fr) repeat(5,minmax(105px,1fr))}.gtt-form-grid .span-2{grid-column:span 1}.algo-form-grid{grid-template-columns:minmax(240px,2fr) minmax(130px,1fr) minmax(130px,.8fr);max-width:760px}.pnl-form-grid{grid-template-columns:minmax(130px,1fr) minmax(150px,1fr) minmax(120px,.7fr);max-width:580px}
 .data-panel{min-height:calc(100vh - 128px);display:flex;flex-direction:column}.quick-drawer:not([hidden])+.data-panel{min-height:calc(100vh - 235px)}.table-pad{padding:0;flex:1;min-height:0}.data-viewport{height:100%;max-height:calc(100vh - 175px);overflow:auto;margin:0}.quick-drawer:not([hidden])+.data-panel .data-viewport{max-height:calc(100vh - 285px)}
 .data-panel .dt th{top:0;z-index:2}.data-panel .dt td,.data-panel .dt th{padding:8px 10px}.compact-tabs{border:0;margin:0}.compact-tabs .tab{padding:7px 13px;border-radius:14px;border:1px solid transparent;margin-right:3px}.compact-tabs .tab.on{background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.35)}
 .metric-strip+.data-panel{min-height:calc(100vh - 185px)}
@@ -1327,6 +1329,42 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
   #ocTable.mobile-chain .moc-grid>.moc-metric:last-child:nth-child(even){grid-column:1/-1!important;width:100%!important}
 }
 </style>
+<style id="order-ticket-v2">
+/* =====================================================================
+   ORDER TICKET v2 (2026-09-18) — rebuilt layout + AUTO margin estimate.
+   Old: one cramped 10-column row (.compact-form-grid.order-form-grid).
+   New: three semantic flex rows + a footer bar:
+     r1   instrument (wide) + BUY/SELL toggle
+     r2   quantity · type · price · trigger (price/trigger self-hide)
+     r3   product · validity · AMO
+     ft   auto margin/charges results | ↻ re-estimate | PLACE button
+   Scoped to #orderTicket and appended after every other style pack, so
+   it wins the cascade without touching the shared form-grid classes.
+   ===================================================================== */
+#orderTicket .order-form-v2{display:flex;flex-direction:column;gap:10px;padding:12px 14px 14px}
+#orderTicket .ot-row{display:flex;gap:9px;align-items:flex-end;flex-wrap:wrap}
+#orderTicket .ot-row .fgrp{flex:1 1 110px;min-width:0;margin:0}
+#orderTicket .ot-r1 .ot-inst{flex:3 1 240px}
+#orderTicket .ot-r1 .ot-side{flex:0 0 150px}
+#orderTicket .ot-side .mini-toggle{margin:0}
+#orderTicket .ot-side .tb{font-weight:800;letter-spacing:.6px}
+#orderTicket .ot-hint{flex:1 1 100%;margin:0}
+#orderTicket .ot-footer{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--bd);padding-top:11px;margin-top:1px}
+#orderTicket .ot-estimate{flex:1 1 280px;min-width:0}
+#orderTicket .ot-actions{display:flex;gap:7px;margin-left:auto}
+#orderTicket .ot-place{min-width:172px;min-height:36px;font-size:12px;font-weight:800;letter-spacing:.4px;justify-content:center}
+#orderTicket #oMarginBtn{white-space:nowrap}
+@media(max-width:820px){
+  #orderTicket .ot-row{flex-direction:column;align-items:stretch;gap:8px}
+  #orderTicket .ot-row .fgrp{flex:1 1 auto}
+  #orderTicket .ot-footer{flex-direction:column;align-items:stretch}
+  #orderTicket .ot-actions{margin-left:0}
+  #orderTicket .ot-place{flex:1 1 auto;min-height:42px}
+  #orderTicket #oMarginBtn{flex:1 1 auto}
+}
+body.density-touch #orderTicket .ot-place{min-height:46px}
+body.density-compact #orderTicket .order-form-v2{gap:8px;padding:10px 11px 11px}
+</style>
 </head>
 <body>
 <div class="tcon" id="TC"></div>
@@ -1413,19 +1451,30 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
   </div>
   <section class="quick-drawer cd" id="orderTicket" hidden>
     <div class="quick-head"><span>Order ticket</span><button type="button" class="mcl" onclick="toggleQuickPanel('orderTicket',document.getElementById('orderTicketBtn'),false)">✕</button></div>
-    <div class="compact-form-grid order-form-grid">
-      <div class="fgrp span-2"><label>Instrument</label><div class="dd" id="dO1"><input class="fi" id="oI" placeholder="Search instrument…" autocomplete="off"><div class="ddl" id="dO1_L"></div></div></div>
-      <div class="fgrp"><label>Side</label><div class="tg mini-toggle" id="oST"><button type="button" class="tb buy on" onclick="setS('BUY',this)">BUY</button><button type="button" class="tb sell" onclick="setS('SELL',this)">SELL</button></div></div>
-      <div class="fgrp"><label>Type</label><select class="fi" id="oTy" onchange="tPF()"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option><option value="SL">SL</option><option value="SL-M">SL-M</option></select></div>
-      <div class="fgrp"><label>Product</label><select class="fi" id="oPr"><option value="D">Delivery</option><option value="I">Intraday</option><option value="MTF">MTF</option></select></div>
-      <div class="fgrp"><label>Quantity</label><input type="number" class="fi" id="oQ" value="1" min="1"></div>
-      <div class="fgrp" id="oPG" style="display:none"><label>Price</label><input type="number" class="fi" id="oP" step="0.05"></div>
-      <div class="fgrp" id="oTG" style="display:none"><label>Trigger</label><input type="number" class="fi" id="oTr" step="0.05"></div>
-      <div class="fgrp"><label>Validity</label><select class="fi" id="oVl"><option value="DAY">DAY</option><option value="IOC">IOC</option></select></div>
-      <div class="fgrp"><label>AMO</label><select class="fi" id="oAm"><option value="false">No</option><option value="true">Yes</option></select></div>
-      <div class="fgrp span-2" id="oDerivHint" style="display:none"><span class="ticket-hint">ℹ️ F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled.</span></div>
-      <div id="oMarginRow"><button type="button" class="btn bo" id="oMarginBtn" onclick="estMargin()">🧮 Estimate margin &amp; charges</button><div id="oMarginR" class="margin-results"><span class="muted-note">Pre-trade estimate for this ticket — required margin, full charge breakup &amp; breakeven. Nothing is placed.</span></div></div>
-      <div class="fgrp form-action"><label>&nbsp;</label><button type="button" class="btn bg" id="oBn" onclick="plO()">✅ PLACE BUY</button></div>
+    <div class="order-form-v2">
+      <div class="ot-row ot-r1">
+        <div class="fgrp ot-inst"><label>Instrument</label><div class="dd" id="dO1"><input class="fi" id="oI" placeholder="Search instrument…" autocomplete="off"><div class="ddl" id="dO1_L"></div></div></div>
+        <div class="fgrp ot-side"><label>Side</label><div class="tg mini-toggle" id="oST"><button type="button" class="tb buy on" onclick="setS('BUY',this)">BUY</button><button type="button" class="tb sell" onclick="setS('SELL',this)">SELL</button></div></div>
+      </div>
+      <div class="ot-row ot-r2">
+        <div class="fgrp"><label>Quantity</label><input type="number" class="fi" id="oQ" value="1" min="1" oninput="otAuto()"></div>
+        <div class="fgrp"><label>Type</label><select class="fi" id="oTy" onchange="tPF();otAuto()"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option><option value="SL">SL</option><option value="SL-M">SL-M</option></select></div>
+        <div class="fgrp" id="oPG" style="display:none"><label>Price</label><input type="number" class="fi" id="oP" step="0.05" oninput="otAuto()"></div>
+        <div class="fgrp" id="oTG" style="display:none"><label>Trigger</label><input type="number" class="fi" id="oTr" step="0.05" oninput="otAuto()"></div>
+      </div>
+      <div class="ot-row ot-r3">
+        <div class="fgrp"><label>Product</label><select class="fi" id="oPr" onchange="otAuto()"><option value="D">Delivery</option><option value="I">Intraday</option><option value="MTF">MTF</option></select></div>
+        <div class="fgrp"><label>Validity</label><select class="fi" id="oVl" onchange="otAuto()"><option value="DAY">DAY</option><option value="IOC">IOC</option></select></div>
+        <div class="fgrp"><label>AMO</label><select class="fi" id="oAm" onchange="otAuto()"><option value="false">No</option><option value="true">Yes</option></select></div>
+      </div>
+      <div class="fgrp ot-hint" id="oDerivHint" style="display:none"><span class="ticket-hint">ℹ️ F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled.</span></div>
+      <div class="ot-footer">
+        <div class="ot-estimate margin-results" id="oMarginR"><span class="muted-note">Auto-estimate: fill the ticket — required margin, full charge breakup &amp; breakeven appear here automatically. Nothing is placed.</span></div>
+        <div class="ot-actions">
+          <button type="button" class="btn bo" id="oMarginBtn" onclick="estMargin()" title="Re-estimate margin &amp; charges now">↻ Estimate</button>
+          <button type="button" class="btn bg ot-place" id="oBn" onclick="plO()">✅ PLACE BUY</button>
+        </div>
+      </div>
     </div>
   </section>
   <section class="cd data-panel">
@@ -2396,6 +2445,7 @@ function ddPick(ddId,key,sym,instrument=null){
     }catch(e){}
   }
   const inst=normalizeInstrument(instrument||{k:key,s:sym,n:sym,x:key.split('_')[0]})||{k:key,s:sym,lot:1,minimumLot:1,tick:.05};const inp=document.querySelector(`#${ddId} input`);if(inp)inp.value=inst.s;$.ddSel[ddId]=inst;document.getElementById(ddId+'_L')?.classList.remove('on');applyInstrumentDefaults(ddId,inst);proSetActiveInstrument(inst,true);
+  if(ddId==='dO1')otAuto();/* new instrument → re-estimate in the ticket */
   if(ddId==='dC1'){$.cKey=inst.k;$.cSym=inst.s;document.getElementById('cSN').textContent=inst.s;ldCh();}
   if(ddId==='dOC')ocSyncFromIndex(inst.k,inst.s);
   if(ddId==='dF1')setTimeout(()=>loadFundamentals(),0);
@@ -3294,8 +3344,9 @@ function setS(s,el){
   const target=el||document.querySelector(`#oST .${$.oSide==='BUY'?'buy':'sell'}`);
   if(target)target.classList.add('on');
   const bn=document.getElementById('oBn');
-  bn.className=$.oSide==='BUY'?'btn bg':'btn br';
+  bn.className='btn ot-place '+($.oSide==='BUY'?'bg':'br');
   bn.textContent=$.oSide==='BUY'?'✅ PLACE BUY':'📉 PLACE SELL';
+  otAuto();
 }
 
 async function plO(){
@@ -3350,25 +3401,32 @@ async function plO(){
    hub does not invalidate the GET cache the way mutating POSTs do. */
 $.marginSeq=0;$.marginBusy=false;
 function estMarginNum(v){const n=Number(v);return Number.isFinite(n)?n:0;}
-async function estMargin(){
-  if(!$.tok)return ts('Log in first to estimate margin','w');
+async function estMargin(opts){
+  const auto=!!(opts&&opts.auto);
+  /* AUTO mode (ticket-edit driven, debounced via otAuto): a validation
+     miss parks a muted note in the results box instead of toasting — the
+     user is mid-typing, not asking. The ↻ button keeps the explicit,
+     toasting behaviour. */
+  const bail=(toastMsg,note)=>{if(auto)otEstNote(`<span class="muted-note">${note}</span>`);else ts(toastMsg,'e');};
+  const idleNote='<span class="muted-note">Auto-estimate: fill the ticket — required margin, full charge breakup &amp; breakeven appear here automatically. Nothing is placed.</span>';
+  if(!$.tok){if(auto){otEstNote('<span class="muted-note">Log in to see margin &amp; charges.</span>');return;}return ts('Log in first to estimate margin','w');}
   if($.marginBusy)return;
   const btn=document.getElementById('oMarginBtn'),box=document.getElementById('oMarginR');
-  const sel=gDD('dO1');if(!sel)return ts('Select an instrument from the dropdown','e');
+  const sel=gDD('dO1');if(!sel){bail('Select an instrument from the dropdown','Pick an instrument to see the estimate.');return;}
   const qtyRaw=String(document.getElementById('oQ')?.value||'').trim(),qty=parseInt(qtyRaw,10);
   const orderType=document.getElementById('oTy')?.value||'MARKET';
   let product=document.getElementById('oPr')?.value||'D';if(!['D','I','MTF'].includes(product))product='D';
   const side=$.oSide==='SELL'?'SELL':'BUY';
   const lot=Math.max(1,Math.round(Number(sel.minimumLot||sel.lot||1))||1),tick=Number(sel.tick)||.05;
-  if(!Number.isInteger(qty)||qty<=0||String(qty)!==String(parseFloat(qtyRaw)))return ts('Quantity must be a positive whole number','e');
-  if(qty%lot!==0)return ts(`Quantity must be a multiple of lot size ${lot}`,'e');
+  if(!Number.isInteger(qty)||qty<=0||String(qty)!==String(parseFloat(qtyRaw))){bail('Quantity must be a positive whole number','Enter a whole quantity to see the estimate.');return;}
+  if(qty%lot!==0){bail(`Quantity must be a multiple of lot size ${lot}`,`Quantity must be a multiple of lot size ${lot} — the estimate resumes when it is.`);return;}
   /* Sync price check for priced order types happens BEFORE the loading state,
      so a bad ticket never leaves a spinner behind. */
   let ticketPrice=0;
   if(['LIMIT','SL'].includes(orderType)){
     ticketPrice=Number(document.getElementById('oP')?.value||0);
-    if(!Number.isFinite(ticketPrice)||ticketPrice<=0)return ts('Enter a valid limit price','e');
-    if(!priceOnTick(ticketPrice,tick))return ts(`Price must follow tick size ₹${tick}`,'e');
+    if(!Number.isFinite(ticketPrice)||ticketPrice<=0){bail('Enter a valid limit price','Enter a valid limit price to see the estimate.');return;}
+    if(!priceOnTick(ticketPrice,tick)){bail(`Price must follow tick size ₹${tick}`,`Price must follow tick size ₹${tick}.`);return;}
   }
   const seq=++$.marginSeq;
   $.marginBusy=true;if(btn)btn.disabled=true;
@@ -3381,7 +3439,7 @@ async function estMargin(){
         if(seq!==$.marginSeq)return;
         price=estMarginNum(Object.values(q.data||{})[0]?.last_price);
       }catch(e){price=0;}
-      if(!(price>0)){if(box)box.innerHTML='<span class="muted-note">Pre-trade estimate for this ticket — required margin, full charge breakup &amp; breakeven. Nothing is placed.</span>';return ts('Live price unavailable — enter a LIMIT price or retry','e');}
+      if(!(price>0)){if(auto){if(seq===$.marginSeq)otEstNote('<span class="muted-note">Live price unavailable right now — it will retry on your next change.</span>');return;}if(box)box.innerHTML=idleNote;return ts('Live price unavailable — enter a LIMIT price or retry','e');}
       priceSrc='LTP';
     }
     /* Margin (read-only POST), brokerage (GET, 45s TTL keyed on the full query)
@@ -3395,17 +3453,18 @@ async function estMargin(){
     ]);
     if(seq!==$.marginSeq||!box)return;
     /* Logout mid-flight: never leave a stuck spinner or paint money UI with no session. */
-    if(!$.tok){box.innerHTML='<span class="muted-note">Pre-trade estimate for this ticket — required margin, full charge breakup &amp; breakeven. Nothing is placed.</span>';return;}
+    if(!$.tok){box.innerHTML=idleNote;return;}
     const mOk=m.status==='fulfilled',bOk=b.status==='fulfilled';
     if(!mOk&&!bOk){
       box.innerHTML='<span class="margin-err">Estimate failed — ticket unchanged. Check the connection and retry.</span>';
-      return ts('Estimate failed: '+(m.reason?.message||b.reason?.message||'unknown error'),'e');
+      if(!auto)ts('Estimate failed: '+(m.reason?.message||b.reason?.message||'unknown error'),'e');
+      return;
     }
     box.innerHTML=estMarginHtml({sel,qty,product,side,orderType,price,priceSrc,
       margin:mOk?m.value?.data:null,marginErr:mOk?null:(m.reason?.message||'failed'),
       brok:bOk?b.value?.data?.charges:null,brokErr:bOk?null:(b.reason?.message||'failed'),
       funds:f.status==='fulfilled'?fundsSummary(f.value.response?.data):null});
-    ts('Margin & charges estimated','s');
+    if(!auto)ts('Margin & charges estimated','s');
   }finally{
     if(seq===$.marginSeq){$.marginBusy=false;if(btn)btn.disabled=false;}
   }
@@ -3449,6 +3508,28 @@ function estMarginHtml(r){
   }
   return head+`<div class="margin-grid">${mh}${bh}</div>`;
 }
+
+/* ================= Order ticket: AUTO margin & charges =================
+   otAuto() is wired to every ticket input — qty/price/trigger typing,
+   type/product/validity/AMO change, side toggle, instrument pick and
+   panel open. It debounces 700 ms, then runs estMargin({auto:true}),
+   which shows silent in-box notes instead of toasting on incomplete
+   tickets (you are mid-typing, not asking). The ↻ button keeps the
+   explicit, toasting call. Retries itself if an estimate is already
+   in flight so the last edit always wins. */
+$.otAutoT=null;
+function otEstNote(html){const b=document.getElementById('oMarginR');if(b)b.innerHTML=html;}
+function otAuto(){
+  if(!$.tok)return;                                   /* no live session — nothing to fetch */
+  const panel=document.getElementById('orderTicket');
+  if(!panel||panel.hidden)return;                     /* ticket closed — skip */
+  clearTimeout($.otAutoT);
+  $.otAutoT=setTimeout(()=>{
+    if($.marginBusy){otAuto();return;}                /* estimate in flight — retry when it lands */
+    estMargin({auto:true});
+  },700);
+}
+window.otAuto=otAuto;
 
 function qO(k,s,side){
   const meta=normalizeInstrument(($.wl||[]).find(w=>w.k===k)||{k,s,n:s,x:k.split('_')[0]})||{k,s,lot:1,minimumLot:1,tick:.05},inp=document.querySelector('#dO1 input');if(inp)inp.value=meta.s;$.ddSel.dO1=meta;applyInstrumentDefaults('dO1',meta);setS(side);nav('orders');showQuickPanel('orderTicket','orderTicketBtn');
@@ -4650,7 +4731,7 @@ function toggleQuickPanel(id,button,force){
   const panel=document.getElementById(id);if(!panel)return;const show=force===undefined?panel.hidden:!!force;panel.hidden=!show;
   const btn=button||document.getElementById(id==='orderTicket'?'orderTicketBtn':'gttTicketBtn');
   if(btn){btn.classList.toggle('bo',show);btn.classList.toggle('bp',!show);btn.textContent=show?'− Close':id==='orderTicket'?'＋ New order':'＋ Create GTT';btn.setAttribute('aria-expanded',String(show));}
-  if(show){if(id==='orderTicket')tPF();setTimeout(()=>panel.querySelector('input')?.focus(),40);}
+  if(show){if(id==='orderTicket'){tPF();otAuto();/* prefilled ticket → estimate right away */}setTimeout(()=>panel.querySelector('input')?.focus(),40);}
 }
 function showQuickPanel(id,buttonId){const panel=document.getElementById(id);if(panel?.hidden)toggleQuickPanel(id,document.getElementById(buttonId),true);}
 

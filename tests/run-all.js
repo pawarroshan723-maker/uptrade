@@ -1,7 +1,7 @@
 /* Runs every suite sequentially; exits non-zero on any failure. */
 const { spawnSync } = require('child_process');
 const path = require('path');
-const suites = ['mstest.js', 'oc_ro.js', 'pltest.js', 'doccheck.js', 'core.js'];
+const suites = ['mstest.js', 'oc_ro.js', 'pltest.js', 'doccheck.js', 'core.js', 'ottest.js'];
 let failed = 0;
 for (const s of suites) {
   const r = spawnSync(process.execPath, [path.join(__dirname, s)], { stdio: 'inherit', timeout: 240000 });
