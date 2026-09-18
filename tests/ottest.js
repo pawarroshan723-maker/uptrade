@@ -25,7 +25,7 @@ const { boot, okpush, report } = require('./helpers');
 
   /* ---- 1. structure ---- */
   ok('ticket uses order-form-v2 (not the old 10-col grid)', !!w.document.querySelector('#orderTicket .order-form-v2') && !w.document.querySelector('#orderTicket .compact-form-grid'));
-  ok('dense layout: r1 (inst+side) + one r2 with all 7 fields', !!w.document.querySelector('#orderTicket .ot-r1') && !w.document.querySelector('#orderTicket .ot-r3') && w.document.querySelectorAll('#orderTicket .ot-r2 .fgrp').length === 7);
+  ok('single-line layout: one row with all 9 fields', !!w.document.querySelector('#orderTicket .ot-line') && !w.document.querySelector('#orderTicket .ot-r1') && w.document.querySelectorAll('#orderTicket .ot-line .fgrp').length === 9);
   ok('footer bar with estimate + actions', !!w.document.querySelector('#orderTicket .ot-footer') && !!w.document.querySelector('#orderTicket .ot-actions'));
   ok('place button carries ot-place', w.document.getElementById('oBn').className.includes('ot-place'));
 
@@ -50,6 +50,9 @@ const { boot, okpush, report } = require('./helpers');
   ok('results box rendered the estimate', box.textContent.includes('Required margin'));
   ok('auto success was SILENT (no toast)', toasts() === '' || !toasts().includes('estimated'));
   ok('estimate shows the final margin figure', box.textContent.includes('8,500'));
+  ok('estimate is ONE summary line, details folded', box.textContent.includes('Charges ₹42.50') && !!box.querySelector('.margin-detail-btn') && box.querySelector('.margin-detail').hidden === true);
+  w.eval(`estMarginToggleDetail()`);
+  ok('Details toggle expands the full breakup', !box.querySelector('.margin-detail').hidden && box.textContent.includes('Brokerage'));
 
   /* ---- 3. auto estimate: invalid lot → silent note, no fetch ---- */
   clearToasts();
@@ -67,6 +70,7 @@ const { boot, okpush, report } = require('./helpers');
   ok('SELL: label updated', w.document.getElementById('oBn').textContent.includes('PLACE SELL'));
   await new Promise(r => setTimeout(r, 1600));
   ok('setS re-armed the auto estimate', w.document.getElementById('oMarginR').textContent.includes('Required margin'));
+  ok('details stays open across re-estimates', !w.document.getElementById('oMarginR').querySelector('.margin-detail').hidden);
   ok('side travelled as SELL', calls.filter(c => c.u.includes('/v2/charges/margin')).slice(-1)[0] === undefined || true);
 
   /* ---- 5. manual button still toasts on invalid ---- */

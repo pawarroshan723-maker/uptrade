@@ -72,11 +72,8 @@ The login card offers:
 
 ## 3.6 Order ticket v2 + auto margin estimate (added 2026-09-18)
 
-- **Rebuilt ticket layout (dense)** — the old single cramped 10-column row is gone. The ticket is now two rows plus a footer bar (scoped `<style id="order-ticket-v2">`, appended last so it wins the cascade):
-  1. **Instrument (wide) + BUY/SELL** toggle
-  2. One dense self-wrapping row: **Quantity · Type · Price · Trigger · Product · Validity · AMO** — price/trigger appear only for priced/stop types and the row re-balances instead of leaving half-empty lines
-  3. Footer: **auto estimate results · ↻ re-estimate · PLACE BUY/SELL** on one line (stacks only on phones, where the field row becomes a 2-column grid)
-  Sizing is value-first: **13px semi-bold field text in 30px-high boxes** (bigger text, smaller boxes), 10.5px labels, 7-8px gutters — no wasted vertical space.
+- **Rebuilt ticket layout (single line)** — the old cramped form is now **one horizontal line**: **Instrument · BUY/SELL · Quantity · Type · Price · Trigger · Product · Validity · AMO** (price/trigger self-hide for MARKET; the line wraps only when the viewport truly can't fit it — phones get a 2-column grid). Footer bar on one line: **estimate summary · ↻ re-estimate · PLACE BUY/SELL**. Value-first sizing: **13px semi-bold field text in 30px-high boxes**, 10.5px labels.
+- **Estimate results merged into one compact line** — instead of two cards, the summary shows just `Charges ₹X + Required margin ₹Y · ✓ Covered — ₹Z available` (or `✗ Shortfall ₹X — ₹Z available`); the full breakup (SPAN/exposure components, per-charge rows, per-share breakeven, DP plan, ticket echo) expands behind a **Details ⌄** toggle that survives re-estimates (`estMarginToggleDetail`).
 - **🧮 Margin & charges now auto-fetch** — every ticket edit (qty/price/trigger typing, type/product/validity/AMO change, side toggle, instrument pick, panel open) re-runs the estimator after a 700 ms debounce (`otAuto()` → `estMargin({auto:true})`). Auto mode is **silent**: an incomplete ticket (wrong lot multiple, off-tick price) parks a muted note in the results box instead of toasting, a failed fetch shows the inline error, and in-flight estimates are retried so the last edit always wins. The ↻ button keeps the explicit, toasting behaviour. Still pre-trade only — nothing is placed.
 - `setS()` now preserves the place-button styling class and re-arms the auto estimate.
 

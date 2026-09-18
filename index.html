@@ -1331,24 +1331,24 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
 </style>
 <style id="order-ticket-v2">
 /* =====================================================================
-   ORDER TICKET v2 (2026-09-18, dense rev 2) + AUTO margin estimate.
-   Old: one cramped 10-column row (.compact-form-grid.order-form-grid).
-   New — two rows + a footer bar, zero wasted vertical space:
-     r1   instrument (wide) + BUY/SELL toggle
-     r2   ONE dense self-wrapping row: qty · type · price · trigger ·
-          product · validity · AMO (price/trigger self-hide; the row
-          re-balances instead of leaving a half-empty line)
-     ft   auto margin/charges results | ↻ re-estimate | PLACE — one
-          line, never wraps (stacks only on phones)
-   Density: 13px semi-bold values in 30px boxes (big text, small box),
-   10.5px labels, 7-8px gutters. Scoped to #orderTicket and appended
-   after every other style pack, so it wins the cascade.
+   ORDER TICKET v2 (2026-09-18, single-line rev 3) + AUTO margin estimate.
+   ONE horizontal line: instrument · side · qty · type · price · trigger
+   · product · validity · AMO (price/trigger self-hide; wraps only when
+   the viewport truly can't fit them). Footer bar stays one line:
+   estimate summary | ↻ re-estimate | PLACE.
+   Estimate box = ONE compact line (charges + required margin + coverage)
+   with the full breakup behind a Details toggle (estMarginToggleDetail).
+   Density: 13px semi-bold values in 30px boxes, 10.5px labels.
+   Scoped to #orderTicket and appended after every other style pack, so
+   it wins the cascade without touching the shared form-grid classes.
    ===================================================================== */
 #orderTicket .order-form-v2{display:flex;flex-direction:column;gap:8px;padding:10px 12px 12px}
 #orderTicket .ot-row{display:flex;gap:7px;align-items:flex-end;flex-wrap:wrap}
-#orderTicket .ot-row .fgrp{flex:1 1 96px;min-width:0;margin:0}
-#orderTicket .ot-r1 .ot-inst{flex:3 1 220px}
-#orderTicket .ot-r1 .ot-side{flex:0 0 138px}
+#orderTicket .ot-row .fgrp{flex:1 1 84px;min-width:0;margin:0}
+#orderTicket .ot-line .ot-inst{flex:2.2 1 170px}
+#orderTicket .ot-line .ot-side{flex:0 0 118px}
+#orderTicket .ot-line .ot-qty{flex:0 1 78px}
+#orderTicket .ot-line .ot-amo{flex:0 1 76px}
 #orderTicket .fgrp label{font-size:10.5px!important;margin-bottom:2px;letter-spacing:.2px}
 #orderTicket .fi{font-size:13px;font-weight:600;min-height:30px;height:30px;padding:4px 8px}
 #orderTicket select.fi{padding:4px 4px 4px 8px}
@@ -1363,12 +1363,20 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
 #orderTicket .ot-actions .btn{flex:1 1 auto;white-space:nowrap;min-height:34px}
 #orderTicket .ot-place{min-width:150px;font-size:12px;font-weight:800;letter-spacing:.4px;justify-content:center}
 #orderTicket #oMarginBtn{font-size:11px;font-weight:700}
+/* one-line estimate summary + expandable details */
+#orderTicket .margin-sum{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11px;color:var(--t2);line-height:1.35}
+#orderTicket .margin-sum b{font-size:12.5px;font-weight:800;color:var(--t1);font-variant-numeric:tabular-nums}
+#orderTicket .margin-sum-funds{font-size:10.5px;font-weight:700}
+#orderTicket .margin-detail-btn{margin-left:auto;flex:0 0 auto;background:transparent;border:1px solid var(--bd);color:var(--t2);font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;cursor:pointer;white-space:nowrap;transition:.15s}
+#orderTicket .margin-detail-btn:hover{color:var(--t1);border-color:var(--t3);background:var(--b4)}
+#orderTicket .margin-detail{margin-top:8px}
+#orderTicket .margin-detail[hidden]{display:none}
 @media(max-width:820px){
   #orderTicket .ot-row{flex-direction:column;align-items:stretch;gap:7px}
-  /* dense row becomes a 2-col grid on phones — half the height */
-  #orderTicket .ot-r2{display:grid;grid-template-columns:1fr 1fr;gap:7px}
-  #orderTicket .ot-r2 .fgrp{flex:1 1 auto}
-  #orderTicket .ot-r2 .fgrp:last-child:nth-child(odd){grid-column:1/-1}
+  /* the single line becomes a 2-col grid on phones — half the height */
+  #orderTicket .ot-line{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  #orderTicket .ot-line .fgrp{flex:1 1 auto}
+  #orderTicket .ot-line .fgrp:last-child:nth-child(odd){grid-column:1/-1}
   #orderTicket .ot-row .fgrp{flex:1 1 auto}
   #orderTicket .ot-footer{flex-direction:column;align-items:stretch}
   #orderTicket .ot-actions{margin-left:0}
@@ -1464,18 +1472,16 @@ body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
   <section class="quick-drawer cd" id="orderTicket" hidden>
     <div class="quick-head"><span>Order ticket</span><button type="button" class="mcl" onclick="toggleQuickPanel('orderTicket',document.getElementById('orderTicketBtn'),false)">✕</button></div>
     <div class="order-form-v2">
-      <div class="ot-row ot-r1">
+      <div class="ot-row ot-line">
         <div class="fgrp ot-inst"><label>Instrument</label><div class="dd" id="dO1"><input class="fi" id="oI" placeholder="Search instrument…" autocomplete="off"><div class="ddl" id="dO1_L"></div></div></div>
         <div class="fgrp ot-side"><label>Side</label><div class="tg mini-toggle" id="oST"><button type="button" class="tb buy on" onclick="setS('BUY',this)">BUY</button><button type="button" class="tb sell" onclick="setS('SELL',this)">SELL</button></div></div>
-      </div>
-      <div class="ot-row ot-r2">
-        <div class="fgrp"><label>Quantity</label><input type="number" class="fi" id="oQ" value="1" min="1" oninput="otAuto()"></div>
+        <div class="fgrp ot-qty"><label>Quantity</label><input type="number" class="fi" id="oQ" value="1" min="1" oninput="otAuto()"></div>
         <div class="fgrp"><label>Type</label><select class="fi" id="oTy" onchange="tPF();otAuto()"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option><option value="SL">SL</option><option value="SL-M">SL-M</option></select></div>
         <div class="fgrp" id="oPG" style="display:none"><label>Price</label><input type="number" class="fi" id="oP" step="0.05" oninput="otAuto()"></div>
         <div class="fgrp" id="oTG" style="display:none"><label>Trigger</label><input type="number" class="fi" id="oTr" step="0.05" oninput="otAuto()"></div>
         <div class="fgrp"><label>Product</label><select class="fi" id="oPr" onchange="otAuto()"><option value="D">Delivery</option><option value="I">Intraday</option><option value="MTF">MTF</option></select></div>
         <div class="fgrp"><label>Validity</label><select class="fi" id="oVl" onchange="otAuto()"><option value="DAY">DAY</option><option value="IOC">IOC</option></select></div>
-        <div class="fgrp"><label>AMO</label><select class="fi" id="oAm" onchange="otAuto()"><option value="false">No</option><option value="true">Yes</option></select></div>
+        <div class="fgrp ot-amo"><label>AMO</label><select class="fi" id="oAm" onchange="otAuto()"><option value="false">No</option><option value="true">Yes</option></select></div>
       </div>
       <div class="fgrp ot-hint" id="oDerivHint" style="display:none"><span class="ticket-hint">ℹ️ F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled.</span></div>
       <div class="ot-footer">
@@ -3480,13 +3486,27 @@ async function estMargin(opts){
   }
 }
 function estMarginRow(label,value,cls){return `<div class="margin-row"><span>${label}</span><b class="${cls||''}">${value}</b></div>`;}
+function estMarginFundsText(finalMargin,funds){
+  if(!funds)return '';
+  const avail=estMarginNum(funds.available);
+  return avail>=finalMargin?`✓ Covered — ${fm(avail)} available`:`✗ Shortfall ${fm(finalMargin-avail)} — ${fm(avail)} available`;
+}
 function estMarginFunds(finalMargin,funds){
   if(!funds)return '<div class="margin-note">Funds unavailable — coverage not checked.</div>';
-  const avail=estMarginNum(funds.available);
-  if(avail>=finalMargin)return `<div class="margin-note pp">✓ Covered — ${fm(avail)} available</div>`;
-  return `<div class="margin-note pn">✗ Shortfall ${fm(finalMargin-avail)} — ${fm(avail)} available</div>`;
+  return `<div class="margin-note ${estMarginNum(funds.available)>=finalMargin?'pp':'pn'}">${estMarginFundsText(finalMargin,funds)}</div>`;
 }
 function estMarginHtml(r){
+  /* ONE compact summary line (charges + required margin + funds coverage)
+     with the full breakup behind the Details toggle — the ticket footer
+     stays short; nothing is lost, it's just folded away. */
+  const mOk=!!r.margin,bOk=!!r.brok;
+  const fin=mOk?estMarginNum(r.margin.final_margin):0,tot=bOk?estMarginNum(r.brok.total):0;
+  const sumParts=[];
+  if(bOk)sumParts.push(`Charges <b>${fm(tot)}</b>`);
+  if(mOk)sumParts.push(`Required margin <b>${fm(fin)}</b>`);
+  const fundsTxt=(mOk&&r.funds)?estMarginFundsText(fin,r.funds):'';
+  const covered=!!r.funds&&estMarginNum(r.funds.available)>=fin;
+  const sum=`<div class="margin-sum">${sumParts.length?sumParts.join(' + '):'<span class="margin-err">Estimate unavailable</span>'}${fundsTxt?`<span class="margin-sum-funds ${covered?'pp':'pn'}">${fundsTxt}</span>`:''}<button type="button" class="margin-detail-btn" onclick="estMarginToggleDetail()">${$.marginDetailOpen?'Hide details ⌃':'Details ⌄'}</button></div>`;
   const head=`<div class="margin-head"><b>${escapeHtml(r.sel.s||r.sel.k)}</b><span>${r.side} ${r.qty} • ${escapeHtml(r.product)} • ${escapeHtml(r.orderType)} @ ${r.priceSrc==='LTP'?'LTP ':''}₹${r.price.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})} • ${new Date().toLocaleTimeString()}</span></div>`;
   let mh='';
   if(r.margin){
@@ -3516,8 +3536,20 @@ function estMarginHtml(r){
   }else{
     bh=`<div class="margin-card"><div class="margin-title">Charges (one side)</div><div class="margin-err">${escapeHtml(r.brokErr||'failed')}</div></div>`;
   }
-  return head+`<div class="margin-grid">${mh}${bh}</div>`;
+  return sum+`<div class="margin-detail"${$.marginDetailOpen?'':' hidden'}>${head}<div class="margin-grid">${mh}${bh}</div></div>`;
 }
+
+/* Estimate summary/details toggle — the box shows ONE compact line
+   (charges + required margin + coverage); the full breakup expands
+   behind the Details button and stays open across re-estimates. */
+$.marginDetailOpen=false;
+function estMarginToggleDetail(){
+  $.marginDetailOpen=!$.marginDetailOpen;
+  const box=document.getElementById('oMarginR'),det=box?.querySelector('.margin-detail'),btn=box?.querySelector('.margin-detail-btn');
+  if(det)det.hidden=!$.marginDetailOpen;
+  if(btn)btn.textContent=$.marginDetailOpen?'Hide details ⌃':'Details ⌄';
+}
+window.estMarginToggleDetail=estMarginToggleDetail;
 
 /* ================= Order ticket: AUTO margin & charges =================
    otAuto() is wired to every ticket input — qty/price/trigger typing,
