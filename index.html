@@ -1349,11 +1349,12 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
 #orderTicket .ot-side .mini-toggle{margin:0}
 #orderTicket .ot-side .tb{font-weight:800;letter-spacing:.6px}
 #orderTicket .ot-hint{flex:1 1 100%;margin:0}
-#orderTicket .ot-footer{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--bd);padding-top:11px;margin-top:1px}
-#orderTicket .ot-estimate{flex:1 1 280px;min-width:0}
-#orderTicket .ot-actions{display:flex;gap:7px;margin-left:auto}
-#orderTicket .ot-place{min-width:172px;min-height:36px;font-size:12px;font-weight:800;letter-spacing:.4px;justify-content:center}
-#orderTicket #oMarginBtn{white-space:nowrap}
+#orderTicket .ot-footer{display:flex;gap:10px;align-items:center;flex-wrap:nowrap;border-top:1px solid var(--bd);padding-top:11px;margin-top:1px}
+#orderTicket .ot-estimate{flex:1 1 0;min-width:0}
+#orderTicket .ot-actions{display:flex;gap:7px;flex:0 0 auto;margin-left:auto}
+#orderTicket .ot-actions .btn{flex:1 1 auto;white-space:nowrap}
+#orderTicket .ot-place{min-width:168px;min-height:38px;font-size:12px;font-weight:800;letter-spacing:.4px;justify-content:center}
+#orderTicket #oMarginBtn{min-height:38px;font-weight:700}
 @media(max-width:820px){
   #orderTicket .ot-row{flex-direction:column;align-items:stretch;gap:8px}
   #orderTicket .ot-row .fgrp{flex:1 1 auto}
