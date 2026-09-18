@@ -79,6 +79,18 @@ The login card offers:
 
 ---
 
+## 3.7 GTT product fix + order guards (added 2026-09-18)
+
+A BUY GTT on an MCX crude-oil CE (`CRUDEOIL26OCT10000CE`) went out with **product `I` (MIS)** and the triggered child order was **rejected at exchange validation** with only Upstox's generic *"Something went wrong… please contact us"*. Upstox's GTT policy allows intraday *and* delivery GTTs, but **Intraday (MIS) is not allowed for buying options** — the same rule the order ticket's F&O hint documents.
+
+- **GTT product is now side-aware** (`crG`): option **BUY → `D` (NRML)**; option sells and futures keep `I`; equity stays `D`. The GTT ticket header carries an "Option BUY → NRML" hint chip.
+- **GTT place is confirm()-gated** (echoes side, qty, trigger, product) — it was the only trading action without a confirm.
+- **Generic broker errors now carry the documented causes** (MIS on option BUY, trigger within 0.25% of LTP, trigger outside the contract's execution range) so a bare *"Something went wrong"* is actionable.
+- **Order ticket guard**: a BUY on any option with Product = Intraday is blocked client-side with a clear message instead of eating the exchange rejection.
+- **Order history (View) now shows the broker's `status_message`** — the actual rejection reason (e.g. *"63 : Intraday product is not allowed for buying options"*) under the status line, in red.
+
+---
+
 ## 4. How `index.html` is organized
 
 Read it top-to-bottom in five layers:
@@ -246,9 +258,10 @@ node tests/run-all.js  # -> ALL SUITES GREEN
 | `pltest.js` | 22 | P&L metadata / data / charges, paging, error surfacing |
 | `doccheck.js` | 15 | analytics-token allow-list vs the official doc + CSP policy |
 | `core.js` | 24 | boot, token shift, navigation, trading guards, REST 401 demote-vs-logout |
-| `ottest.js` | 19 | order ticket v2 structure, auto-margin debounce/silent notes, manual-estimate toasts, no-token & closed-panel guards |
+| `ottest.js` | 23 | order ticket v2 structure, auto-margin debounce/silent notes, manual-estimate toasts, no-token & closed-panel guards |
+| `gtttest.js` | 13 | GTT side-aware product (option BUY → NRML), confirm gate, MIS option-buy guard, rejection reasons in history, instrumentIsOption |
 
-**102/102 green** as of 2026-09-18. `tests/helpers.js` boots the real `index.html`
+**119/119 green** as of 2026-09-18. `tests/helpers.js` boots the real `index.html`
 in jsdom with stubbed `fetch` / `WebSocket` / `IndexedDB`, so every suite
 exercises the shipped file rather than a copy of its logic.
 

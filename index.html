@@ -1356,7 +1356,7 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
 #orderTicket .ot-side .tb{font-size:12px;font-weight:800;letter-spacing:.6px;padding-block:4px}
 /* F&O hint chip — lives in the quick-head, right of the "Order ticket"
    title (single line, ellipsized; full text on hover via title attr) */
-#orderTicket .qh-fohint{flex:1 1 auto;min-width:0;margin:0 8px;padding:2px 8px;font-size:10px;color:var(--yl);background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.25);border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#orderTicket .qh-fohint,#gttTicket .qh-fohint{flex:1 1 auto;min-width:0;margin:0 8px;padding:2px 8px;font-size:10px;color:var(--yl);background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.25);border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #orderTicket .muted-note,#orderTicket .margin-results{font-size:10.5px}
 #orderTicket .ot-footer{display:flex;gap:8px;align-items:center;flex-wrap:nowrap;border-top:1px solid var(--bd);padding-top:9px;margin-top:1px}
 #orderTicket .ot-estimate{flex:1 1 0;min-width:0}
@@ -1505,7 +1505,7 @@ body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
     <div class="page-actions"><button type="button" class="btn bp" id="gttTicketBtn" onclick="toggleQuickPanel('gttTicket',this)">＋ Create GTT</button><button type="button" class="icon-btn" onclick="ldG()" title="Refresh">↻</button></div>
   </div>
   <section class="quick-drawer cd" id="gttTicket" hidden>
-    <div class="quick-head"><span>New GTT order</span><button type="button" class="mcl" onclick="toggleQuickPanel('gttTicket',document.getElementById('gttTicketBtn'),false)">✕</button></div>
+    <div class="quick-head"><span>New GTT order</span><span class="qh-fohint" style="display:inline-block" title="Upstox rejects Intraday (MIS) on buying options, so option BUY GTTs are placed as NRML (D); futures/equity follow the segment default.">ℹ️ Option BUY → NRML (Intraday not allowed on option buying)</span><button type="button" class="mcl" onclick="toggleQuickPanel('gttTicket',document.getElementById('gttTicketBtn'),false)">✕</button></div>
     <div class="compact-form-grid gtt-form-grid">
       <div class="fgrp span-2"><label>Instrument</label><div class="dd" id="dG1"><input class="fi" id="gI" placeholder="Search instrument…" autocomplete="off"><div class="ddl" id="dG1_L"></div></div></div>
       <div class="fgrp"><label>Side</label><select class="fi" id="gSd"><option value="BUY">BUY</option><option value="SELL">SELL</option></select></div>
@@ -2087,6 +2087,19 @@ function instrumentAllowed(inst,contextId){
   if(contextId==='dOC'&&instrumentGroup(inst)==='INDEX'&&!optionableIndexSet().has(inst.k))return false;
   const cfg=INSTRUMENT_CONTEXTS[contextId]||INSTRUMENT_CONTEXTS.global,segments=cfg.segments.split(',');return segments.includes('ALL')||segments.includes(instrumentGroup(inst));
 }
+/* True for option instruments (CE/PE). Trusts the master's instrument type;
+   falls back to the trading-symbol shape (strike digits immediately before
+   the CE/PE suffix, e.g. CRUDEOIL26OCT10000CE) so raw picks without a type
+   still work — plain equities like "ACE" must NOT match. Needed because
+   Upstox rejects Intraday (MIS) on BUYING options (2026-09-18: a triggered
+   crude-oil CE GTT with product 'I' died at exchange validation with only
+   the generic "Something went wrong… please contact us"). */
+function instrumentIsOption(inst){
+  const t=String(inst?.type||'').toUpperCase();
+  if(t==='CE'||t==='PE')return true;
+  return /\d(CE|PE)$/i.test(String(inst?.s||'').trim());
+}
+window.instrumentIsOption=instrumentIsOption;
 function instrumentExpiryTime(inst){const e=inst?.expiry;if(e==null||e===''||e==='-')return null;const s=String(e);if(/^\d{13}$/.test(s))return Number(s);if(/^\d{10}$/.test(s))return Number(s)*1000;const t=Date.parse(s);return Number.isFinite(t)?t:null;}
 function instrumentExpiryLabel(inst){const t=instrumentExpiryTime(inst);if(t==null)return '';const d=new Date(t);if(!Number.isFinite(d.getTime()))return '';const mth=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][d.getMonth()],yy=String(d.getFullYear()).slice(2);return `${String(d.getDate()).padStart(2,'0')} ${mth} ${yy}`;}
 function instrumentSearchText(inst){return `${inst.s} ${inst.n} ${inst.underlyingSymbol||''} ${inst.type||''} ${instrumentExpiryLabel(inst)} ${inst.expiry||''} ${inst.strike||''} ${inst.exchangeToken||''}`.toUpperCase();}
@@ -2740,7 +2753,7 @@ async function doMd(){
   finally{$.modBusy=false;}
 }
 async function canO(oid){if(!oid||!confirm('Cancel this order?'))return;try{await upstoxFetch(END.ORDER_CANCEL,{method:'DELETE',query:`?order_id=${encodeURIComponent(oid)}`});ts('Cancelled','s');proInvalidate('/order/');setTimeout(ldO,1000);}catch(e){ts('Can: '+e.message,'e');}}
-async function oHist(oid){if(!oid)return;const ti=document.getElementById('dtTi'),bd=document.getElementById('dtBd');if(ti)ti.textContent='History';if(bd)bd.innerHTML='<div class="ld"><div class="sp"></div></div>';opM('dtM');try{const d=await upstoxFetch(END.ORDER_HISTORY,{query:`?order_id=${encodeURIComponent(oid)}`});if(bd)bd.innerHTML=(d.data||[]).length?(d.data||[]).map(h=>`<div style="padding:5px;border-bottom:1px solid var(--bd);font-size:10px"><b>${escapeHtml(h.status)}</b> Q:${escapeHtml(h.quantity)} P:${escapeHtml(h.price)}</div>`).join(''):'<div class="emp"><div class="ed">No history rows</div></div>';}catch(e){if(bd)bd.innerHTML=`<div class="emp"><div class="ed">${escapeHtml(e.message)}</div></div>`;}}
+async function oHist(oid){if(!oid)return;const ti=document.getElementById('dtTi'),bd=document.getElementById('dtBd');if(ti)ti.textContent='History';if(bd)bd.innerHTML='<div class="ld"><div class="sp"></div></div>';opM('dtM');try{const d=await upstoxFetch(END.ORDER_HISTORY,{query:`?order_id=${encodeURIComponent(oid)}`});if(bd)bd.innerHTML=(d.data||[]).length?(d.data||[]).map(h=>`<div style="padding:5px;border-bottom:1px solid var(--bd);font-size:10px"><b>${escapeHtml(h.status)}</b> Q:${escapeHtml(h.quantity)} P:${escapeHtml(h.price)}${h.status_message?`<div style="color:var(--rd);margin-top:2px">↳ ${escapeHtml(h.status_message)}</div>`:''}</div>`).join(''):'<div class="emp"><div class="ed">No history rows</div></div>';}catch(e){if(bd)bd.innerHTML=`<div class="emp"><div class="ed">${escapeHtml(e.message)}</div></div>`;}}
 
 
 
@@ -3386,11 +3399,15 @@ async function plO(){
      F&O/equity is in UNITS — surface an explicit check until verified in sandbox. */
   if(/^MCX_/i.test(String(sel.k||''))&&!confirm(`MCX check: Upstox V3 docs say commodity quantity is counted in LOTS. Is ${qty} your intended LOT count (not units) for ${sel.s}?`))return;
   const side=$.oSide==='SELL'?'SELL':'BUY';
+  const oPrd=document.getElementById('oPr')?.value||'D';
+  /* Upstox rejects MIS (Intraday) BUYs on options — the F&O hint's rule —
+     block it client-side instead of eating an exchange rejection. */
+  if(side==='BUY'&&oPrd==='I'&&instrumentIsOption(sel))return ts('Intraday (MIS) is not allowed for buying options — switch Product to Delivery (NRML)','e');
   if(!confirm(`${side} ${qty} ${sel.s||sel.k} · ${orderType}${orderType==='MARKET'||orderType==='SL-M'?'':` @ ${price}`}${['SL','SL-M'].includes(orderType)?` trigger ${trigger}`:''}?`))return;
   const btn=document.getElementById('oBn');if(!btn||btn.disabled||$.orderBusy)return;btn.disabled=true;$.orderBusy=true;
   try{
     const d=await upstoxFetch(END.ORDER_PLACE,{method:'POST',body:{
-      quantity:qty,product:document.getElementById('oPr')?.value||'D',
+      quantity:qty,product:oPrd,
       validity:document.getElementById('oVl')?.value||'DAY',
       price:['MARKET','SL-M'].includes(orderType)?0:price,tag:'uptrade-web',
       instrument_token:sel.k,order_type:orderType,transaction_type:side,
@@ -3611,8 +3628,13 @@ async function crG(){
   const lot=Math.max(1,Math.round(Number(sel.minimumLot||sel.lot||1))||1);
   const tick=Number(sel.tick)||.05;
   const grp=instrumentGroup(sel),isDerivative=grp==='FO'||grp==='CURR'||grp==='COMM';
-  /* Equity GTT → CNC (D); F&O / currency / commodity → NRML-style intraday (I). */
-  const product=isDerivative?'I':'D';
+  const side=String(document.getElementById('gSd')?.value||'BUY');
+  /* Equity GTT → CNC (D); F&O / currency / commodity FUTURES → intraday (I).
+     OPTION BUYs are forced to NRML-style (D): Upstox rejects MIS (I) on
+     buying options — the same rule the order ticket's F&O hint documents —
+     which is how a triggered crude-oil CE GTT ended as a rejected child
+     order (2026-09-18: "Something went wrong… please contact us"). */
+  const product=(isDerivative&&!(side==='BUY'&&instrumentIsOption(sel)))?'I':'D';
   if(!Number.isInteger(qty)||qty<=0||String(qty)!==String(parseFloat(qtyRaw)))return ts('Quantity must be a positive whole number','e');
   if(qty%lot!==0)return ts(`Quantity must be a multiple of lot size ${lot}`,'e');
   if(sel.freeze&&qty>sel.freeze)return ts(`Quantity exceeds freeze limit ${sel.freeze}`,'e');
@@ -3620,8 +3642,7 @@ async function crG(){
   if(!priceOnTick(trigger,tick))return ts(`Trigger must follow tick size ₹${tick}`,'e');
   /* AUDIT-API (2026-09-10): bracket GTT — optional TARGET + STOPLOSS legs
      (docs: /v3/order/gtt/place, type MULTIPLE, TARGET/STOPLOSS trigger_type IMMEDIATE,
-     optional trailing_gap on the STOPLOSS leg). */
-  const side=String(document.getElementById('gSd')?.value||'BUY');
+     optional trailing_gap on the STOPLOSS leg). side read above (product logic). */
   const target=Number(document.getElementById('gTg')?.value||0);
   const slp=Number(document.getElementById('gSl')?.value||0);
   const tsl=Number(document.getElementById('gTsl')?.value||0);
@@ -3640,6 +3661,9 @@ async function crG(){
     rules.splice(1,0,{strategy:'TARGET',trigger_type:'IMMEDIATE',trigger_price:target,market_protection:-1});
     gttType='MULTIPLE';
   }
+  /* README §8 convention: every trading action is confirm()-gated — GTT place
+     was the one exception; gate it too (echoes side, qty, trigger, product). */
+  if(!confirm(`GTT ${side} ${qty} ${sel.s||sel.k} · trigger ${document.getElementById('gTt')?.value||'ABOVE'} ₹${trigger} · product ${product}${gttType==='MULTIPLE'?' · bracket TARGET+STOPLOSS':''}?`))return;
   if($.gttBusy)return;$.gttBusy=true;
   try{
     await upstoxFetch(END.GTT_PLACE,{method:'POST',body:{
@@ -3647,7 +3671,13 @@ async function crG(){
       transaction_type:side,rules
     }});
     ts(`GTT created (${gttType==='MULTIPLE'?`bracket ENTRY+TARGET+STOPLOSS, ${product}`:product})`,'s');proInvalidate('/order/gtt');ldG();
-  }catch(e){ts('GTT: '+e.message,'e');}
+  }catch(e){
+    /* The broker's generic GTT error ("Something went wrong… please contact
+       us") carries no cause — append the documented ones so the user can
+       self-serve instead of staring at "rejected" in the book. */
+    const m=String(e.message||''),generic=/something went wrong|please contact us|try again/i.test(m);
+    ts('GTT: '+m+(generic?'\nCommon causes: Intraday product on an option BUY (this app now uses NRML for those), trigger within 0.25% of LTP, or trigger outside the contract\'s execution range. Nothing was placed.':''),'e');
+  }
   finally{$.gttBusy=false;}
 }
 
