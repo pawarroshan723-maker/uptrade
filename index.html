@@ -1471,7 +1471,7 @@ body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
     <div class="page-actions"><button type="button" class="btn bp" id="orderTicketBtn" onclick="toggleQuickPanel('orderTicket',this)">＋ New order</button><button type="button" class="icon-btn" onclick="ldO()" title="Refresh">↻</button></div>
   </div>
   <section class="quick-drawer cd" id="orderTicket" hidden>
-    <div class="quick-head"><span>Order ticket</span><span class="qh-fohint" id="oDerivHint" style="display:none" title="F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled.">ℹ️ F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled.</span><button type="button" class="mcl" onclick="toggleQuickPanel('orderTicket',document.getElementById('orderTicketBtn'),false)">✕</button></div>
+    <div class="quick-head"><span>Order ticket</span><span class="qh-fohint" id="oDerivHint" style="display:none" title="F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled. MCX quantity is in LOTS on Upstox v3 — one lot of crude oil (100 barrels) is quantity 1.">ℹ️ F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled. MCX quantity is in LOTS.</span><button type="button" class="mcl" onclick="toggleQuickPanel('orderTicket',document.getElementById('orderTicketBtn'),false)">✕</button></div>
     <div class="order-form-v2">
       <div class="ot-row ot-line">
         <div class="fgrp ot-inst"><label>Instrument</label><div class="dd" id="dO1"><input class="fi" id="oI" placeholder="Search instrument…" autocomplete="off"><div class="ddl" id="dO1_L"></div></div></div>
@@ -2451,7 +2451,15 @@ function applyProductForInstrument(inst){
 }
 function applyInstrumentDefaults(ddId,inst){
   const lot=Math.max(1,Math.round(Number(inst.minimumLot||inst.lot||1))||1),tick=Number(inst.tick)||.05;
-  const syncQty=(el)=>{if(!el)return;el.min=lot;el.step=lot;const cur=parseInt(el.value,10);if(!Number.isInteger(cur)||cur<=0||cur%lot!==0)el.value=lot;};
+  /* AUDIT-API (F-1) CONFIRMED LIVE (2026-09-18): MCX commodity quantity is
+     in LOTS on the v3 APIs — a Q:100 BUY of a 100-lot crude CE demanded
+     ₹58,40,000 margin (100 lots × 100 barrels). MCX tickets therefore count
+     LOTS (default/step 1, always reset on pick); NSE/BSE/CDS stays in units
+     with lot-multiple validation as before. */
+  const isMcx=/^MCX/i.test(String(inst?.k||''))||instrumentGroup(inst||{})==='COMM';
+  const syncQty=(el)=>{if(!el)return;
+    if(isMcx){el.min=1;el.step=1;el.value=1;return;}
+    el.min=lot;el.step=lot;const cur=parseInt(el.value,10);if(!Number.isInteger(cur)||cur<=0||cur%lot!==0)el.value=lot;};
   if(ddId==='dO1'){syncQty(document.getElementById('oQ'));const op=document.getElementById('oP'),ot=document.getElementById('oTr');if(op)op.step=tick;if(ot)ot.step=tick;applyProductForInstrument(inst);}
   if(ddId==='dG1'){syncQty(document.getElementById('gQt'));const gt=document.getElementById('gTr');if(gt)gt.step=tick;}
 }
@@ -3400,17 +3408,19 @@ async function plO(){
   const trigger=Number(document.getElementById('oTr')?.value||0);
   const lot=Math.max(1,Math.round(Number(sel.minimumLot||sel.lot||1))||1);
   const tick=Number(sel.tick)||.05;
+  const isMcx=/^MCX_/i.test(String(sel.k||''));
   if(!Number.isInteger(qty)||qty<=0||String(qty)!==String(parseFloat(qtyRaw)))return ts('Quantity must be a positive whole number','e');
-  if(qty%lot!==0)return ts(`Quantity must be a multiple of lot size ${lot}`,'e');
+  /* MCX counts LOTS (verified live 2026-09-18) — no lot-multiple check there. */
+  if(!isMcx&&qty%lot!==0)return ts(`Quantity must be a multiple of lot size ${lot}`,'e');
   if(['LIMIT','SL'].includes(orderType)&&(!Number.isFinite(price)||price<=0))return ts('Enter a valid limit price','e');
   if(['LIMIT','SL'].includes(orderType)&&!priceOnTick(price,tick))return ts(`Price must follow tick size ₹${tick}`,'e');
   if(['SL','SL-M'].includes(orderType)&&(!Number.isFinite(trigger)||trigger<=0))return ts('Enter a valid trigger price','e');
   if(['SL','SL-M'].includes(orderType)&&!priceOnTick(trigger,tick))return ts(`Trigger must follow tick size ₹${tick}`,'e');
   const willSlice=!!sel.freeze&&qty>sel.freeze;
   if(willSlice&&!confirm(`Quantity ${qty} exceeds freeze limit ${sel.freeze}. Place as sliced child orders?`))return;
-  /* AUDIT-API (F-1): Upstox V3 docs state commodity quantity is in LOTS while
-     F&O/equity is in UNITS — surface an explicit check until verified in sandbox. */
-  if(/^MCX_/i.test(String(sel.k||''))&&!confirm(`MCX check: Upstox V3 docs say commodity quantity is counted in LOTS. Is ${qty} your intended LOT count (not units) for ${sel.s}?`))return;
+  /* AUDIT-API (F-1), verified live: MCX quantity is in LOTS — echo the
+     unit conversion so ₹58.4L-style surprises are visible before sending. */
+  if(isMcx&&!confirm(`MCX: quantity is counted in LOTS on Upstox v3 — ${qty} lot${qty===1?'':'s'} = ${qty*lot} units of ${sel.s}. Continue?`))return;
   const side=$.oSide==='SELL'?'SELL':'BUY';
   const oPrd=document.getElementById('oPr')?.value||'D';
   /* Upstox rejects MIS (Intraday) BUYs on options — the F&O hint's rule —
@@ -3465,7 +3475,8 @@ async function estMargin(opts){
   const side=$.oSide==='SELL'?'SELL':'BUY';
   const lot=Math.max(1,Math.round(Number(sel.minimumLot||sel.lot||1))||1),tick=Number(sel.tick)||.05;
   if(!Number.isInteger(qty)||qty<=0||String(qty)!==String(parseFloat(qtyRaw))){bail('Quantity must be a positive whole number','Enter a whole quantity to see the estimate.');return;}
-  if(qty%lot!==0){bail(`Quantity must be a multiple of lot size ${lot}`,`Quantity must be a multiple of lot size ${lot} — the estimate resumes when it is.`);return;}
+  /* MCX counts LOTS — one lot is a valid ticket there (see plO). */
+  if(!(/^MCX_/i.test(String(sel.k||'')))&&qty%lot!==0){bail(`Quantity must be a multiple of lot size ${lot}`,`Quantity must be a multiple of lot size ${lot} — the estimate resumes when it is.`);return;}
   /* Sync price check for priced order types happens BEFORE the loading state,
      so a bad ticket never leaves a spinner behind. */
   let ticketPrice=0;
@@ -3648,8 +3659,10 @@ async function crG(){
      which is how a triggered crude-oil CE GTT ended as a rejected child
      order (2026-09-18: "Something went wrong… please contact us"). */
   const product=(isDerivative&&!(side==='BUY'&&instrumentIsOption(sel)))?'I':'D';
+  const isMcx=/^MCX/i.test(String(sel.k||''));
   if(!Number.isInteger(qty)||qty<=0||String(qty)!==String(parseFloat(qtyRaw)))return ts('Quantity must be a positive whole number','e');
-  if(qty%lot!==0)return ts(`Quantity must be a multiple of lot size ${lot}`,'e');
+  /* MCX counts LOTS (verified live 2026-09-18) — no lot-multiple check there. */
+  if(!isMcx&&qty%lot!==0)return ts(`Quantity must be a multiple of lot size ${lot}`,'e');
   if(sel.freeze&&qty>sel.freeze)return ts(`Quantity exceeds freeze limit ${sel.freeze}`,'e');
   if(!Number.isFinite(trigger)||trigger<=0)return ts('Enter a valid trigger price','e');
   if(!priceOnTick(trigger,tick))return ts(`Trigger must follow tick size ₹${tick}`,'e');
@@ -3687,17 +3700,29 @@ async function crG(){
      check when a live price is available (IMMEDIATE sends at once, so the
      rule doesn't apply); on LTP failure, let the broker decide. */
   const tt=String(document.getElementById('gTt')?.value||'ABOVE');
+  let ltpTxt='';
   if(tt!=='IMMEDIATE'){
     try{
       const q=await upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(sel.k)}`});
       const ltp=Number(Object.values(q.data||{})[0]?.last_price)||0;
-      if(ltp>0&&Math.abs(trigger-ltp)<ltp*0.0025)
-        return ts(`Trigger ₹${trigger} is within 0.25% of LTP ₹${ltp} — Upstox requires the trigger at least ₹${(ltp*0.0025).toFixed(2)} away (use ≤ ₹${(ltp-ltp*0.0025).toFixed(2)} or ≥ ₹${(ltp+ltp*0.0025).toFixed(2)})`,'e');
+      if(ltp>0){
+        ltpTxt=` (LTP ₹${ltp})`;
+        if(Math.abs(trigger-ltp)<ltp*0.0025)
+          return ts(`Trigger ₹${trigger} is within 0.25% of LTP ₹${ltp} — Upstox requires the trigger at least ₹${(ltp*0.0025).toFixed(2)} away (use ≤ ₹${(ltp-ltp*0.0025).toFixed(2)} or ≥ ₹${(ltp+ltp*0.0025).toFixed(2)})`,'e');
+        /* Classic foot-gun (2026-09-18: a NIFTY CE GTT with an index-style
+           trigger came back as the broker's generic error): GTT triggers
+           track THIS instrument's price — for an option that's the PREMIUM,
+           not the index/future. A trigger 3x+ away from the LTP gets an
+           explicit confirm before the request. */
+        if(trigger>=ltp*3||trigger<=ltp/3){
+          if(!confirm(`Your trigger ₹${trigger} is far from this instrument's LTP ₹${ltp}. GTT triggers track THIS instrument's price — for an option that's the premium, NOT the index or future. Place anyway?`))return;
+        }
+      }
     }catch(e){/* LTP unavailable — the broker will validate */}
   }
   /* README §8 convention: every trading action is confirm()-gated — GTT place
      was the one exception; gate it too (echoes side, qty, trigger, product). */
-  if(!confirm(`GTT ${side} ${qty} ${sel.s||sel.k} · trigger ${tt} ₹${trigger} · product ${product}${gttType==='MULTIPLE'?' · bracket TARGET+STOPLOSS':''}?`))return;
+  if(!confirm(`GTT ${side} ${qty} ${sel.s||sel.k} · trigger ${tt} ₹${trigger}${ltpTxt} · product ${product}${gttType==='MULTIPLE'?' · bracket TARGET+STOPLOSS':''}?`))return;
   if($.gttBusy)return;$.gttBusy=true;
   try{
     await upstoxFetch(END.GTT_PLACE,{method:'POST',body:{

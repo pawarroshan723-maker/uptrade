@@ -183,5 +183,45 @@ const { boot, okpush, report } = require('./helpers');
             instrumentIsOption({s:'ACE',type:'EQ'})===false &&
             instrumentIsOption({s:'RELIANCE'})===false`));
 
+  /* ---- 12. MCX quantity = LOTS: ticket defaults, validation, confirm, estimator ---- */
+  const confirms = [];
+  w.confirm = m => { confirms.push(String(m)); return true; };
+  w.eval(`applyInstrumentDefaults('dO1', ${JSON.stringify(CRUDE_CE)})`);
+  ok('MCX pick resets ticket qty to 1 LOT (step 1)',
+    w.document.getElementById('oQ').value === '1' && String(w.document.getElementById('oQ').step) === '1');
+  const placeBefore = bodies.filter(b => b.u.includes('/v3/order/place')).length;
+  w.eval(`
+    $.ddSel.dO1=${JSON.stringify(CRUDE_CE)};
+    document.getElementById('oI').value='CRUDEOIL26OCT10000CE';
+    document.getElementById('oQ').value='1';
+    document.getElementById('oTy').value='LIMIT';
+    document.getElementById('oP').value='584.1';
+    document.getElementById('oPr').value='D';
+    setS('BUY');
+    plO();
+  `);
+  await new Promise(r => setTimeout(r, 300));
+  const lastPlace = bodies.filter(b => b.u.includes('/v3/order/place'))
+    .map(b => (typeof b.body === 'string' ? JSON.parse(b.body) : b.body)).pop();
+  ok('MCX qty 1 (one lot) passes the old lot-multiple guard and places',
+    bodies.filter(b => b.u.includes('/v3/order/place')).length === placeBefore + 1);
+  ok('MCX place sends quantity 1 (lots)', lastPlace && lastPlace.quantity === 1 && lastPlace.instrument_token === 'MCX_FO|47861');
+  ok('MCX confirm echoes the lots→units conversion',
+    confirms.some(m => m.includes('LOTS') && m.includes('= 100 units')));
+  w.eval(`document.getElementById('orderTicket').hidden=false; estMargin()`);
+  await new Promise(r => setTimeout(r, 500));
+  const estBox = w.document.getElementById('oMarginR').textContent;
+  ok('MCX qty 1 no longer trips the lot-multiple estimate bail',
+    !estBox.includes('multiple of lot size'));
+
+  /* ---- 13. GTT far-trigger guard (option premium ≠ index price) ---- */
+  const gttBeforeFar = gttCount();
+  w.confirm = () => false; /* decline the far-trigger confirm */
+  setGtt(NIFTY_CE, 'BUY', 75, 1000); /* LTP 225 → 1000 is > 3x → far-trigger confirm */
+  await w.eval('crG()');
+  await new Promise(r => setTimeout(r, 400));
+  ok('far-from-LTP trigger requires an explicit confirm (declined → no request)',
+    gttCount() === gttBeforeFar);
+
   process.exit(report('GTT+ORDER GUARD TESTS', R));
 })().catch(e => { console.error('HARNESS ERROR', e); process.exit(1); });

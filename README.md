@@ -94,6 +94,20 @@ A BUY GTT on an MCX crude-oil CE (`CRUDEOIL26OCT10000CE`) went out with **produc
 
 ---
 
+## 3.8 MCX quantity is LOTS + GTT trigger sanity (added 2026-09-18, later same day)
+
+The rejection-reason surfacing (§3.7) exposed the real causes of the day's failures:
+
+- **MCX quantity semantics confirmed live**: a Q:100 BUY of the 100-lot `CRUDEOIL…9000CE` @ ₹584 was rejected with `RMS:Margin Exceeds, Required:5840000.00` — i.e. the broker billed **100 lots × 100 barrels**, not 1 lot. On Upstox v3, **MCX quantity is counted in LOTS** (NSE/BSE/CDS stay in units). The app now:
+  - resets an MCX pick's ticket quantity to **1 lot** (step 1) instead of auto-filling the lot size in units — order ticket *and* GTT ticket;
+  - skips the lot-multiple validation for MCX (a single lot is valid there) in `plO`, `crG` and the margin estimator;
+  - echoes the conversion in the MCX confirm: *"1 lot = 100 units of CRUDEOIL…"*;
+  - notes "MCX quantity is in LOTS" in the ticket header hint.
+- **GTT far-trigger guard**: a NIFTY-CE GTT still failed with the generic `UDAPI100500` — no rejected child order, so the trigger itself was refused (an index-style price against an option premium). For ABOVE/BELOW entries the app now shows the **instrument's LTP in the confirm** and demands an extra explicit confirm when the trigger is **≥3× or ≤⅓ of LTP** ("GTT triggers track THIS instrument's price — for an option that's the premium, NOT the index or future").
+- Note: the RMS line also showed `Available:0.00` — even a correct 1-lot order needs free funds; the auto margin estimate's coverage line (`✗ Shortfall`) shows that before you place.
+
+---
+
 ## 4. How `index.html` is organized
 
 Read it top-to-bottom in five layers:
@@ -262,9 +276,9 @@ node tests/run-all.js  # -> ALL SUITES GREEN
 | `doccheck.js` | 15 | analytics-token allow-list vs the official doc + CSP policy |
 | `core.js` | 24 | boot, token shift, navigation, trading guards, REST 401 demote-vs-logout |
 | `ottest.js` | 23 | order ticket v2 structure, auto-margin debounce/silent notes, manual-estimate toasts, no-token & closed-panel guards |
-| `gtttest.js` | 19 | GTT side-aware product (option BUY → NRML), picker exchange allow-list, MCX risk-confirm, 0.25% trigger pre-check, generic-failure diagnosis + error codes, MIS option-buy guard, rejection reasons in history, instrumentIsOption |
+| `gtttest.js` | 25 | GTT side-aware product (option BUY → NRML), picker exchange allow-list, MCX risk-confirm, 0.25% trigger pre-check, far-trigger guard, generic-failure diagnosis + error codes, MIS option-buy guard, MCX lots semantics, rejection reasons in history, instrumentIsOption |
 
-**125/125 green** as of 2026-09-18. `tests/helpers.js` boots the real `index.html`
+**131/131 green** as of 2026-09-18. `tests/helpers.js` boots the real `index.html`
 in jsdom with stubbed `fetch` / `WebSocket` / `IndexedDB`, so every suite
 exercises the shipped file rather than a copy of its logic.
 
