@@ -126,6 +126,16 @@ Two live reports: *"Orders quantity not auto fill"* and *"check after market all
 
 ---
 
+## 3.10 GTT doc-conformance audit (added 2026-09-18, evening)
+
+A line-by-line check of `crG()` against the official place-GTT request-body docs surfaced one **live bug** and one missing guard:
+
+- **Bracket GTTs sent a `null` rule (fixed)**: the STOPLOSS leg was written with `rules[2] = …` on the 1-element `[ENTRY]` array — that leaves a *sparse hole* at index 1, and the subsequent `splice(1, 0, TARGET)` filled the hole while the array still serialized as **`[ENTRY, TARGET, null, STOPLOSS]`**. A `null` rule is a guaranteed broker rejection (most likely the generic `UDAPI100500`). The legs are now built densely — `ENTRY, TARGET, STOPLOSS` — and a test asserts the serialized array contains no holes/nulls.
+- **Trailing-gap floor pre-checked (doc rule)**: *"the minimum value for trailing gap is 10% of difference between LTP and stop loss trigger price"*. The field label said so, but `crG()` never enforced it — now, when a live LTP is available, a gap below `10% × |LTP − SL|` is blocked with the computed minimum (₹-exact) instead of eating the rejection. The LTP is fetched for this check even when the ENTRY type is IMMEDIATE (the floor applies to the STOPLOSS leg regardless).
+- **Verified conforming (no change needed)**: `ENTRY` rule always present; TARGET/STOPLOSS legs are `IMMEDIATE`-only; `market_protection: -1` (the automatic default, never `0`) on every leg; `trailing_gap` only ever rides the STOPLOSS leg; bracket sides follow the docs (ENTRY BUY → TARGET/STOPLOSS are the opposite side; BUY: target above entry, SL below); `type` is `SINGLE` vs `MULTIPLE` exactly per legs; IMMEDIATE sends the child LIMIT order immediately (valid for the day; SL/Target legs valid 365 days after the primary fills) — already covered by the after-hours confirm note.
+
+---
+
 ## 4. How `index.html` is organized
 
 Read it top-to-bottom in five layers:
@@ -294,9 +304,9 @@ node tests/run-all.js  # -> ALL SUITES GREEN
 | `doccheck.js` | 15 | analytics-token allow-list vs the official doc + CSP policy |
 | `core.js` | 24 | boot, token shift, navigation, trading guards, REST 401 demote-vs-logout |
 | `ottest.js` | 23 | order ticket v2 structure, auto-margin debounce/silent notes, manual-estimate toasts, no-token & closed-panel guards |
-| `gtttest.js` | 40 | GTT side-aware product (option BUY → NRML), picker exchange allow-list, MCX risk-confirm, 0.25% trigger pre-check, far-trigger guard, generic-failure diagnosis + error codes, MIS option-buy guard, MCX lots semantics, rejection reasons in history, instrumentIsOption, segment-aware market clock (NSE/CDS/MCX sessions), after-hours AMO gate (UDAPI100039/100074), MCX evening session stays live, GTT after-hours note, quantity auto-fill announced + reset on instrument change |
+| `gtttest.js` | 44 | GTT side-aware product (option BUY → NRML), picker exchange allow-list, MCX risk-confirm, 0.25% trigger pre-check, far-trigger guard, generic-failure diagnosis + error codes, MIS option-buy guard, MCX lots semantics, rejection reasons in history, instrumentIsOption, segment-aware market clock (NSE/CDS/MCX sessions), after-hours AMO gate (UDAPI100039/100074), MCX evening session stays live, GTT after-hours note, quantity auto-fill announced + reset on instrument change, trailing-gap 10% floor, dense bracket rules (no null hole) + doc shapes |
 
-**146/146 green** as of 2026-09-18. `tests/helpers.js` boots the real `index.html`
+**150/150 green** as of 2026-09-18. `tests/helpers.js` boots the real `index.html`
 in jsdom with stubbed `fetch` / `WebSocket` / `IndexedDB`, so every suite
 exercises the shipped file rather than a copy of its logic.
 

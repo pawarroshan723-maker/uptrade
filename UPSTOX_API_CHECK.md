@@ -120,7 +120,8 @@ Doc notes the app already honors: `market_protection: -1` default (auto), `slice
   "instrument_token": "NSE_EQ|INE669E01016", "transaction_type": "BUY" }
 ```
 Response: `{ "status":"success", "data":{ "gtt_order_ids":["GTT-CU25280200021013"] }, "metadata":{ "latency":88 } }`
-**Multi-leg:** `type:"MULTIPLE"` with `rules[]` = `ENTRY` + `TARGET` + `STOPLOSS` (TARGET/STOPLOSS trigger_type must be `IMMEDIATE`); **Trailing SL (beta):** add `trailing_gap` on the STOPLOSS leg (min gap = 10 % of |LTP − trigger|).
+**Multi-leg:** `type:"MULTIPLE"` with `rules[]` = `ENTRY` + `TARGET` + `STOPLOSS` (TARGET/STOPLOSS trigger_type must be `IMMEDIATE`); **Trailing SL (beta):** add `trailing_gap` on the STOPLOSS leg (min gap = 10 % of |LTP − SL trigger| — pre-checked client-side since 2026-09-18).
+**Conformance audit (2026-09-18, README §3.10):** verified against the request-body table — ENTRY mandatory; TARGET/STOPLOSS IMMEDIATE-only; `market_protection` optional on all three legs, default −1 (0 = MARKET-order rejection from API — never sent); TARGET/STOPLOSS sides are broker-implied opposite of the ENTRY's `transaction_type`; IMMEDIATE = child LIMIT sent at once (day-valid; SL/Target 365d after primary fills). **Bug found & fixed:** `rules[2]=…` on `[ENTRY]` serialized a sparse hole as `null` → `[ENTRY,TARGET,null,STOPLOSS]`; legs now built densely.
 
 ### 4.3 Margin — `POST /v2/charges/margin`
 Request: `{ "instruments":[{ "instrument_key":"NSE_EQ|INE669E01016", "quantity":1, "transaction_type":"BUY", "product":"D" }] }` (max 20, no duplicate keys)

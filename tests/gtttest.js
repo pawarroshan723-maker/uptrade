@@ -362,5 +362,38 @@ const { boot, okpush, report } = require('./helpers');
   ok('MCX evening pick keeps AMO No (session still open)',
     w.document.getElementById('oAm').value === 'false');
 
+  /* ---- 15. GTT doc conformance: trailing-gap floor + bracket leg shapes ---- */
+  w.confirm = () => true;
+  clock('2026-09-18T11:00:00');
+  const setBracket = (t, sl, gap) => w.eval(`
+    document.getElementById('gTg').value=${JSON.stringify(String(t))};
+    document.getElementById('gSl').value=${JSON.stringify(String(sl))};
+    document.getElementById('gTsl').value=${JSON.stringify(String(gap || ''))};`);
+  /* LTP for NIFTY_CE (NSE_FO|56842) is 225 → floor = 10% × |225 − 200| = 2.50 */
+  w.document.getElementById('TC').innerHTML = '';
+  const before15 = gttCount();
+  setGtt(NIFTY_CE, 'BUY', 75, 230);
+  setBracket(260, 200, 1); /* gap 1 < 2.50 → blocked */
+  await w.eval('crG()');
+  await new Promise(r => setTimeout(r, 400));
+  ok('trailing gap below the 10%-of-|LTP−SL| floor is blocked with the computed minimum',
+    gttCount() === before15 &&
+    w.document.getElementById('TC').textContent.includes('Trailing gap') &&
+    w.document.getElementById('TC').textContent.includes('2.50'));
+  setBracket(260, 200, 3); /* ≥ 2.50 → placed */
+  await w.eval('crG()');
+  await new Promise(r => setTimeout(r, 400));
+  const g15 = gttBodies().pop();
+  ok('gap ≥ floor places a MULTIPLE GTT, trailing_gap rides the STOPLOSS leg',
+    gttCount() === before15 + 1 && g15.type === 'MULTIPLE' &&
+    g15.rules.find(r => r.strategy === 'STOPLOSS').trailing_gap === 3);
+  ok('doc shapes: ENTRY first; TARGET/STOPLOSS IMMEDIATE-only; market_protection −1 on every leg',
+    g15.rules[0].strategy === 'ENTRY' &&
+    g15.rules.filter(r => r.strategy !== 'ENTRY').every(r => r.trigger_type === 'IMMEDIATE') &&
+    g15.rules.every(r => r.market_protection === -1));
+  ok('bracket rules are DENSE — no null hole in the serialized array (old rules[2] bug)',
+    g15.rules.length === 3 && g15.rules.every(Boolean) &&
+    g15.rules.map(r => r.strategy).join(',') === 'ENTRY,TARGET,STOPLOSS');
+
   process.exit(report('GTT+ORDER GUARD TESTS', R));
 })().catch(e => { console.error('HARNESS ERROR', e); process.exit(1); });

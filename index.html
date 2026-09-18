@@ -3760,9 +3760,15 @@ async function crG(){
     if(tsl){
       if(tsl<=0)return ts('Trailing gap must be positive','e');
       if(!priceOnTick(tsl,tick))return ts(`Trailing gap must follow tick size ₹${tick}`,'e');
-      rules[2]={strategy:'STOPLOSS',trigger_type:'IMMEDIATE',trigger_price:slp,trailing_gap:tsl,market_protection:-1};
-    }else rules[2]={strategy:'STOPLOSS',trigger_type:'IMMEDIATE',trigger_price:slp,market_protection:-1};
-    rules.splice(1,0,{strategy:'TARGET',trigger_type:'IMMEDIATE',trigger_price:target,market_protection:-1});
+    }
+    /* BUG (found 2026-09-18, GTT doc-conformance audit): assigning rules[2]
+       on the 1-element [ENTRY] array left a SPARSE HOLE at index 1; the
+       splice(1,0,TARGET) filled that hole but the array still serialized as
+       [ENTRY,TARGET,null,STOPLOSS] — a null rule the broker rejects. Build
+       the legs densely (ENTRY, TARGET, STOPLOSS) instead. */
+    const slRule={strategy:'STOPLOSS',trigger_type:'IMMEDIATE',trigger_price:slp,market_protection:-1};
+    if(tsl>0)slRule.trailing_gap=tsl;
+    rules.splice(1,0,{strategy:'TARGET',trigger_type:'IMMEDIATE',trigger_price:target,market_protection:-1},slRule);
     gttType='MULTIPLE';
   }
   /* 2026-09-18: the broker API rejected a crude-oil CE GTT with its generic
@@ -3779,21 +3785,35 @@ async function crG(){
      rule doesn't apply); on LTP failure, let the broker decide. */
   const tt=String(document.getElementById('gTt')?.value||'ABOVE');
   let ltpTxt='';
-  if(tt!=='IMMEDIATE'){
+  /* LTP is needed for the ENTRY checks (0.25% distance + far-trigger — non-
+     IMMEDIATE only) AND for the trailing-gap floor, which applies to the
+     STOPLOSS leg whatever the entry type. */
+  if(tt!=='IMMEDIATE'||(tsl>0&&slp>0)){
     try{
       const q=await upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(sel.k)}`});
       const ltp=Number(Object.values(q.data||{})[0]?.last_price)||0;
       if(ltp>0){
-        ltpTxt=` (LTP ₹${ltp})`;
-        if(Math.abs(trigger-ltp)<ltp*0.0025)
-          return ts(`Trigger ₹${trigger} is within 0.25% of LTP ₹${ltp} — Upstox requires the trigger at least ₹${(ltp*0.0025).toFixed(2)} away (use ≤ ₹${(ltp-ltp*0.0025).toFixed(2)} or ≥ ₹${(ltp+ltp*0.0025).toFixed(2)})`,'e');
-        /* Classic foot-gun (2026-09-18: a NIFTY CE GTT with an index-style
-           trigger came back as the broker's generic error): GTT triggers
-           track THIS instrument's price — for an option that's the PREMIUM,
-           not the index/future. A trigger 3x+ away from the LTP gets an
-           explicit confirm before the request. */
-        if(trigger>=ltp*3||trigger<=ltp/3){
-          if(!confirm(`Your trigger ₹${trigger} is far from this instrument's LTP ₹${ltp}. GTT triggers track THIS instrument's price — for an option that's the premium, NOT the index or future. Place anyway?`))return;
+        if(tt!=='IMMEDIATE'){
+          ltpTxt=` (LTP ₹${ltp})`;
+          if(Math.abs(trigger-ltp)<ltp*0.0025)
+            return ts(`Trigger ₹${trigger} is within 0.25% of LTP ₹${ltp} — Upstox requires the trigger at least ₹${(ltp*0.0025).toFixed(2)} away (use ≤ ₹${(ltp-ltp*0.0025).toFixed(2)} or ≥ ₹${(ltp+ltp*0.0025).toFixed(2)})`,'e');
+          /* Classic foot-gun (2026-09-18: a NIFTY CE GTT with an index-style
+             trigger came back as the broker's generic error): GTT triggers
+             track THIS instrument's price — for an option that's the PREMIUM,
+             not the index/future. A trigger 3x+ away from the LTP gets an
+             explicit confirm before the request. */
+          if(trigger>=ltp*3||trigger<=ltp/3){
+            if(!confirm(`Your trigger ₹${trigger} is far from this instrument's LTP ₹${ltp}. GTT triggers track THIS instrument's price — for an option that's the premium, NOT the index or future. Place anyway?`))return;
+          }
+        }
+        /* Doc floor (place-gtt-order, rules[].trailing_gap): "the minimum
+           value for trailing gap is 10% of difference between LTP and stop
+           loss trigger price" — smaller gaps are refused broker-side, so
+           pre-check with the live price instead of eating the rejection. */
+        if(tsl>0&&slp>0){
+          const gapMin=0.10*Math.abs(ltp-slp);
+          if(tsl<gapMin)
+            return ts(`Trailing gap ₹${tsl} is below the broker minimum — 10% of |LTP ₹${ltp} − SL ₹${slp}| = ₹${gapMin.toFixed(2)}. Increase the gap or clear it.`,'e');
         }
       }
     }catch(e){/* LTP unavailable — the broker will validate */}
