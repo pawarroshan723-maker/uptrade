@@ -1363,6 +1363,11 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
 #orderTicket .ot-actions{display:flex;gap:6px;flex:0 0 auto;margin-left:auto}
 #orderTicket .ot-actions .btn{flex:1 1 auto;white-space:nowrap;min-height:34px}
 #orderTicket .ot-place{min-width:150px;font-size:12px;font-weight:800;letter-spacing:.4px;justify-content:center}
+/* QTY ↔ LOTS switch (order ticket + GTT form) — sits in the label slot of the quantity field */
+.qty-sw{display:inline-flex;gap:3px;margin-bottom:3px;min-height:12px}
+.qty-sw .qsw{background:transparent;border:1px solid var(--bd);border-radius:4px;color:var(--t3);cursor:pointer;font-size:9px;font-weight:800;letter-spacing:.5px;line-height:1;padding:3px 6px}
+.qty-sw .qsw:hover{color:var(--t1)}
+.qty-sw .qsw.on{background:rgba(234,179,8,.14);border-color:var(--yl);color:var(--yl)}
 #orderTicket #oMarginBtn{font-size:11px;font-weight:700}
 /* one-line estimate summary + expandable details */
 #orderTicket .margin-sum{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11px;color:var(--t2);line-height:1.35}
@@ -1476,7 +1481,7 @@ body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
       <div class="ot-row ot-line">
         <div class="fgrp ot-inst"><label>Instrument</label><div class="dd" id="dO1"><input class="fi" id="oI" placeholder="Search instrument…" autocomplete="off"><div class="ddl" id="dO1_L"></div></div></div>
         <div class="fgrp ot-side"><label>Side</label><div class="tg mini-toggle" id="oST"><button type="button" class="tb buy on" onclick="setS('BUY',this)">BUY</button><button type="button" class="tb sell" onclick="setS('SELL',this)">SELL</button></div></div>
-        <div class="fgrp ot-qty"><label>Quantity</label><input type="number" class="fi" id="oQ" value="1" min="1" oninput="otAuto()"></div>
+        <div class="fgrp ot-qty"><div class="qty-sw" id="oQSw"><button type="button" class="qsw on" data-m="qty" onclick="setQtyMode('dO1','qty')" title="Enter the broker quantity — units on NSE/BSE/CDS, lots on MCX">QTY</button><button type="button" class="qsw" data-m="lots" onclick="setQtyMode('dO1','lots')" title="Enter LOTS on any segment — auto-converted to the broker quantity when placed (units on NSE/BSE/CDS, lots on MCX)">LOTS</button></div><input type="number" class="fi" id="oQ" value="1" min="1" oninput="otAuto()"></div>
         <div class="fgrp"><label>Type</label><select class="fi" id="oTy" onchange="tPF();otAuto()"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option><option value="SL">SL</option><option value="SL-M">SL-M</option></select></div>
         <div class="fgrp" id="oPG" style="display:none"><label>Price</label><input type="number" class="fi" id="oP" step="0.05" oninput="otAuto()"></div>
         <div class="fgrp" id="oTG" style="display:none"><label>Trigger</label><input type="number" class="fi" id="oTr" step="0.05" oninput="otAuto()"></div>
@@ -1509,7 +1514,7 @@ body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
     <div class="compact-form-grid gtt-form-grid">
       <div class="fgrp span-2"><label>Instrument</label><div class="dd" id="dG1"><input class="fi" id="gI" placeholder="Search instrument…" autocomplete="off"><div class="ddl" id="dG1_L"></div></div></div>
       <div class="fgrp"><label>Side</label><select class="fi" id="gSd"><option value="BUY">BUY</option><option value="SELL">SELL</option></select></div>
-      <div class="fgrp"><label>Quantity</label><input type="number" class="fi" id="gQt" value="1" min="1"></div>
+      <div class="fgrp"><div class="qty-sw" id="gQSw"><button type="button" class="qsw on" data-m="qty" onclick="setQtyMode('dG1','qty')" title="Enter the broker quantity — units on NSE/BSE/CDS, lots on MCX">QTY</button><button type="button" class="qsw" data-m="lots" onclick="setQtyMode('dG1','lots')" title="Enter LOTS on any segment — auto-converted to the broker quantity when placed">LOTS</button></div><input type="number" class="fi" id="gQt" value="1" min="1"></div>
       <div class="fgrp"><label>Trigger type</label><select class="fi" id="gTt"><option value="ABOVE">ABOVE</option><option value="BELOW">BELOW</option><option value="IMMEDIATE">IMMEDIATE</option></select></div>
       <div class="fgrp"><label>Trigger price</label><input type="number" class="fi" id="gTr" step="0.05"></div>
       <div class="fgrp"><label>Target price <span style="color:var(--t3);font-weight:400">(optional — enables bracket)</span></label><input type="number" class="fi" id="gTg" step="0.05"></div>
@@ -2484,6 +2489,59 @@ function applyProductForInstrument(inst){
   else if(!['D','I','MTF'].includes(keep)){sel.value='D';}
   const hint=document.getElementById('oDerivHint');if(hint)hint.style.display=isDerivative?'':'none';
 }
+/* ============ QTY ↔ LOTS switch (2026-09-18) ============================
+   The broker quantity is UNITS on NSE/BSE/CDS and LOTS on MCX (doc-verified),
+   but traders think in lots on every segment. The quantity field's QTY/LOTS
+   switch sets what the NUMBER in the box means; qtyParts() converts it to the
+   exact broker quantity for place / estimate / GTT. Basis per pick: MCX always
+   starts in LOTS (that IS its broker quantity), everything else in QTY (units);
+   a manual switch is sticky ($.qtyPref) for future non-MCX picks. */
+function qtyNativeMode(inst){return(/^MCX/i.test(String(inst?.k||''))||instrumentGroup(inst||{})==='COMM')?'lots':'qty';}
+function qtyTitle(mode,lot,isMcx){
+  if(mode==='lots')return`Number = LOTS (1 lot = ${lot} units). Converted to the broker quantity when placed${isMcx?' — MCX sends lots directly':''}.`;
+  if(isMcx)return`Number = UNITS of the commodity — multiples of ${lot} (1 lot = ${lot} units). Converted to LOTS on place (MCX quantity is lots).`;
+  return lot>1?`Quantity is in UNITS — multiples of ${lot} (1 lot = ${lot} units). Auto-filled to 1 lot on instrument pick.`:'Quantity is in units (lot size 1).';
+}
+function renderQtySw(form){
+  const wrap=form==='dO1'?document.getElementById('oQSw'):form==='dG1'?document.getElementById('gQSw'):null;if(!wrap)return;
+  const mode=($.qtyModes||{})[form]||'qty';
+  wrap.querySelectorAll('.qsw').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
+}
+function setQtyMode(form,mode){
+  const el=document.getElementById(form==='dO1'?'oQ':'gQt');if(!el)return;
+  const inst=$.ddSel[form]||{},lot=Math.max(1,Math.round(Number(inst.minimumLot||inst.lot||1))||1);
+  const prev=($.qtyModes=$.qtyModes||{})[form]||qtyNativeMode(inst);
+  if(prev===mode)return;
+  $.qtyModes[form]=mode;$.qtyPref=mode;/* sticky for future non-MCX picks */
+  /* convert the current number to the new basis (snap to 1 lot if it doesn't divide) */
+  const cur=parseInt(el.value,10);
+  if(Number.isInteger(cur)&&cur>0)el.value=mode==='lots'?(cur%lot===0?cur/lot:1):cur*lot;
+  else el.value=mode==='lots'?1:lot;
+  const basis=mode==='lots'?1:lot;el.min=basis;el.step=basis;
+  el.title=qtyTitle(mode,lot,/MCX/i.test(String(inst.k||''))||instrumentGroup(inst)==='COMM');
+  renderQtySw(form);
+  ts(mode==='lots'?'Quantity entry: LOTS — converted to the broker quantity when placed':'Quantity entry: QTY — units on NSE/BSE/CDS · lots on MCX','i');
+  if(form==='dO1')otAuto();
+}
+/* Converts the ticket number to the broker quantity (units NSE/BSE/CDS, lots
+   MCX) and validates it for the active basis. Shared by plO/crG/estMargin. */
+function qtyParts(form){
+  const el=document.getElementById(form==='dO1'?'oQ':'gQt'),inst=$.ddSel[form]||{};
+  const lot=Math.max(1,Math.round(Number(inst.minimumLot||inst.lot||1))||1);
+  const isMcx=/^MCX/i.test(String(inst.k||''))||instrumentGroup(inst)==='COMM';
+  const mode=($.qtyModes||{})[form]||qtyNativeMode(inst);
+  const raw=String(el?.value||'').trim(),n=parseInt(raw,10);
+  if(!el||!Number.isInteger(n)||n<=0||String(n)!==String(parseFloat(raw)))
+    return{ok:false,msg:'Quantity must be a positive whole number'};
+  if(mode==='lots')return{ok:true,mode,lot,isMcx,lots:n,units:n*lot,qty:isMcx?n:n*lot};
+  if(!isMcx){
+    if(n%lot!==0)return{ok:false,msg:`Quantity must be a multiple of lot size ${lot}`};
+    return{ok:true,mode,lot,isMcx,lots:n/lot,units:n,qty:n};
+  }
+  if(n%lot!==0)return{ok:false,msg:`MCX quantity (units) must be a multiple of lot size ${lot} — 1 lot = ${lot} units`};
+  return{ok:true,mode,lot,isMcx,lots:n/lot,units:n,qty:n/lot};
+}
+window.qtyParts=qtyParts;
 function applyInstrumentDefaults(ddId,inst,opts={}){
   const lot=Math.max(1,Math.round(Number(inst.minimumLot||inst.lot||1))||1),tick=Number(inst.tick)||.05;
   /* AUDIT-API (F-1) CONFIRMED LIVE (2026-09-18) and in the v2/v3 Place Order
@@ -2493,30 +2551,37 @@ function applyInstrumentDefaults(ddId,inst,opts={}){
      100 barrels). MCX tickets count LOTS (default/step 1); NSE/BSE/CDS stays
      in units with lot-multiple validation as before. */
   const isMcx=/^MCX/i.test(String(inst?.k||''))||instrumentGroup(inst||{})==='COMM';
-  /* 2026-09-18 ("Orders quantity not auto fill"): the fill was already
-     deterministic, but a 1-LOT MCX fill is indistinguishable from the
-     untouched default, and a same-lot carry-over looked like nothing happened.
-     Now EVERY instrument change resets the field to that instrument's basis
-     AND says so — the label carries the lot, the title explains the basis and
-     a toast announces the fill (background/chart/OC callers pass quiet:true;
-     they navigate or toast the lot themselves). Re-picking the same instrument
-     keeps a valid quantity. */
-  const key=String(inst?.k||'');
+  /* 2026-09-18 ("Orders quantity not auto fill") + QTY↔LOTS switch: every
+     instrument change resets the field to that instrument's basis AND says so
+     — the QTY/LOTS switch shows the basis, the title explains it and a toast
+     announces the fill (background/chart/OC callers pass quiet:true). MCX
+     starts in LOTS (its broker quantity), others in QTY (units) unless the
+     user's sticky switch preference says otherwise. Re-picking the same
+     instrument keeps a valid quantity. */
+  if(ddId==='dO1'||ddId==='dG1')($.qtyModes=$.qtyModes||{})[ddId]=isMcx?'lots':($.qtyPref||'qty');
+  const key=String(inst?.k||''),mode=($.qtyModes||{})[ddId]||'qty',basis=mode==='lots'?1:lot;
   const syncQty=(el)=>{if(!el)return;
     const changed=el.dataset.lotKey!==key;el.dataset.lotKey=key;
-    const lab=el.closest('.fgrp')?.querySelector('label');
-    if(isMcx){
-      el.min=1;el.step=1;
-      if(lab)lab.textContent='Qty (LOTS)';
-      el.title=`MCX quantity counts LOTS — 1 lot = ${lot} units. Auto-filled to 1 lot on instrument pick.`;
-      if(changed){el.value=1;if(!opts.quiet)ts(`Quantity auto-filled: 1 LOT = ${lot} units of ${inst?.s||key} (MCX counts lots)`,'i');}
-      return;}
-    el.min=lot;el.step=lot;
-    if(lab)lab.textContent=lot>1?`Qty (lot ${lot})`:'Quantity';
-    el.title=lot>1?`Quantity is in UNITS — multiples of ${lot} (1 lot = ${lot} units). Auto-filled to 1 lot on instrument pick.`:'Quantity is in units (lot size 1).';
+    const modeFlip=el.dataset.qtyMode!==mode;el.dataset.qtyMode=mode;
+    el.min=basis;el.step=basis;
+    el.title=qtyTitle(mode,lot,isMcx);
+    const valid=(n)=>Number.isInteger(n)&&n>0&&(mode==='lots'||n%lot===0);
     const cur=parseInt(el.value,10);
-    if(changed){el.value=lot;if(!opts.quiet&&lot>1)ts(`Quantity auto-filled: ${lot} (1 lot of ${inst?.s||key})`,'i');return;}
-    if(!Number.isInteger(cur)||cur<=0||cur%lot!==0)el.value=lot;};
+    if(changed){
+      el.value=basis;
+      if(!opts.quiet&&(isMcx||lot>1))
+        ts(mode==='lots'?`Quantity auto-filled: 1 lot (= ${lot} units of ${inst?.s||key})`
+          :(isMcx?`Quantity auto-filled: ${lot} units (= 1 lot of ${inst?.s||key})`
+                 :`Quantity auto-filled: ${lot} (1 lot of ${inst?.s||key})`),'i');
+      return;}
+    /* the sticky switch preference can flip the basis on a same-instrument
+       re-pick — convert the number so its meaning doesn't silently change */
+    if(modeFlip){
+      if(Number.isInteger(cur)&&cur>0)el.value=mode==='lots'?(cur%lot===0?cur/lot:1):cur*lot;
+      else el.value=basis;
+      return;}
+    if(!valid(cur))el.value=basis;};
+  renderQtySw(ddId);
   if(ddId==='dO1'){syncQty(document.getElementById('oQ'));const op=document.getElementById('oP'),ot=document.getElementById('oTr');if(op)op.step=tick;if(ot)ot.step=tick;applyProductForInstrument(inst);amoSyncSelect(inst);}
   if(ddId==='dG1'){syncQty(document.getElementById('gQt'));const gt=document.getElementById('gTr');if(gt)gt.step=tick;}
 }
@@ -3458,17 +3523,16 @@ function setS(s,el){
 
 async function plO(){
   const sel=gDD('dO1');if(!sel)return ts('Select an instrument from the dropdown','e');
-  const qtyRaw=String(document.getElementById('oQ')?.value||'').trim();
-  const qty=parseInt(qtyRaw,10);
   const orderType=document.getElementById('oTy')?.value||'MARKET';
   const price=Number(document.getElementById('oP')?.value||0);
   const trigger=Number(document.getElementById('oTr')?.value||0);
-  const lot=Math.max(1,Math.round(Number(sel.minimumLot||sel.lot||1))||1);
   const tick=Number(sel.tick)||.05;
-  const isMcx=/^MCX_/i.test(String(sel.k||''));
-  if(!Number.isInteger(qty)||qty<=0||String(qty)!==String(parseFloat(qtyRaw)))return ts('Quantity must be a positive whole number','e');
-  /* MCX counts LOTS (verified live 2026-09-18) — no lot-multiple check there. */
-  if(!isMcx&&qty%lot!==0)return ts(`Quantity must be a multiple of lot size ${lot}`,'e');
+  /* QTY ↔ LOTS switch: whatever basis is active, qtyParts() returns the
+     quantity exactly as the broker expects it (units NSE/BSE/CDS, lots MCX). */
+  const qp=qtyParts('dO1');
+  if(!qp.ok)return ts(qp.msg,'e');
+  const qty=qp.qty,lot=qp.lot,isMcx=qp.isMcx;
+  const qtyTxt=qp.isMcx?`${qty} lot${qty===1?'':'s'} (= ${qp.units} units)`:(qp.mode==='lots'?`${qp.lots} lot${qp.lots===1?'':'s'} (= ${qp.units} units)`:String(qty));
   if(['LIMIT','SL'].includes(orderType)&&(!Number.isFinite(price)||price<=0))return ts('Enter a valid limit price','e');
   if(['LIMIT','SL'].includes(orderType)&&!priceOnTick(price,tick))return ts(`Price must follow tick size ₹${tick}`,'e');
   if(['SL','SL-M'].includes(orderType)&&(!Number.isFinite(trigger)||trigger<=0))return ts('Enter a valid trigger price','e');
@@ -3504,7 +3568,7 @@ async function plO(){
     if(!confirm('Market is OPEN — AMO applies only outside market hours (docs: auto-treated as live, or rejected with UDAPI100039). Place as a live order instead?'))return;
     const am=document.getElementById('oAm');if(am)am.value='false';
   }
-  if(!confirm(`${side} ${qty} ${sel.s||sel.k} · ${orderType}${orderType==='MARKET'||orderType==='SL-M'?'':` @ ${price}`}${['SL','SL-M'].includes(orderType)?` trigger ${trigger}`:''}${amoOn()?' · AMO (next session)':''}?`))return;
+  if(!confirm(`${side} ${qtyTxt} ${sel.s||sel.k} · ${orderType}${orderType==='MARKET'||orderType==='SL-M'?'':` @ ${price}`}${['SL','SL-M'].includes(orderType)?` trigger ${trigger}`:''}${amoOn()?' · AMO (next session)':''}?`))return;
   const btn=document.getElementById('oBn');if(!btn||btn.disabled||$.orderBusy)return;btn.disabled=true;$.orderBusy=true;
   try{
     const d=await upstoxFetch(END.ORDER_PLACE,{method:'POST',body:{
@@ -3547,14 +3611,14 @@ async function estMargin(opts){
   if($.marginBusy)return;
   const btn=document.getElementById('oMarginBtn'),box=document.getElementById('oMarginR');
   const sel=gDD('dO1');if(!sel){bail('Select an instrument from the dropdown','Pick an instrument to see the estimate.');return;}
-  const qtyRaw=String(document.getElementById('oQ')?.value||'').trim(),qty=parseInt(qtyRaw,10);
   const orderType=document.getElementById('oTy')?.value||'MARKET';
   let product=document.getElementById('oPr')?.value||'D';if(!['D','I','MTF'].includes(product))product='D';
   const side=$.oSide==='SELL'?'SELL':'BUY';
   const lot=Math.max(1,Math.round(Number(sel.minimumLot||sel.lot||1))||1),tick=Number(sel.tick)||.05;
-  if(!Number.isInteger(qty)||qty<=0||String(qty)!==String(parseFloat(qtyRaw))){bail('Quantity must be a positive whole number','Enter a whole quantity to see the estimate.');return;}
-  /* MCX counts LOTS — one lot is a valid ticket there (see plO). */
-  if(!(/^MCX_/i.test(String(sel.k||'')))&&qty%lot!==0){bail(`Quantity must be a multiple of lot size ${lot}`,`Quantity must be a multiple of lot size ${lot} — the estimate resumes when it is.`);return;}
+  /* QTY ↔ LOTS switch — estimate the converted broker quantity (see qtyParts). */
+  const qp=qtyParts('dO1');
+  if(!qp.ok){const m=qp.msg;bail(m,m.includes('whole number')?'Enter a whole quantity to see the estimate.':`${m} — the estimate resumes when it is.`);return;}
+  const qty=qp.qty;
   /* Sync price check for priced order types happens BEFORE the loading state,
      so a bad ticket never leaves a spinner behind. */
   let ticketPrice=0;
@@ -3724,8 +3788,6 @@ async function sqO(t,pr,q){
 
 async function crG(){
   const sel=gDD('dG1');if(!sel)return ts('Select an instrument from the dropdown','e');
-  const qtyRaw=String(document.getElementById('gQt')?.value||'').trim();
-  const qty=parseInt(qtyRaw,10);
   const trigger=Number(document.getElementById('gTr')?.value||0);
   const lot=Math.max(1,Math.round(Number(sel.minimumLot||sel.lot||1))||1);
   const tick=Number(sel.tick)||.05;
@@ -3738,9 +3800,12 @@ async function crG(){
      order (2026-09-18: "Something went wrong… please contact us"). */
   const product=(isDerivative&&!(side==='BUY'&&instrumentIsOption(sel)))?'I':'D';
   const isMcx=/^MCX/i.test(String(sel.k||''));
-  if(!Number.isInteger(qty)||qty<=0||String(qty)!==String(parseFloat(qtyRaw)))return ts('Quantity must be a positive whole number','e');
-  /* MCX counts LOTS (verified live 2026-09-18) — no lot-multiple check there. */
-  if(!isMcx&&qty%lot!==0)return ts(`Quantity must be a multiple of lot size ${lot}`,'e');
+  /* QTY ↔ LOTS switch — GTT quantity follows the same broker semantics as
+     regular orders (units NSE/BSE/CDS, lots MCX); see qtyParts. */
+  const qp=qtyParts('dG1');
+  if(!qp.ok)return ts(qp.msg,'e');
+  const qty=qp.qty;
+  const qtyTxt=qp.isMcx?`${qty} lot${qty===1?'':'s'} (= ${qp.units} units)`:(qp.mode==='lots'?`${qp.lots} lot${qp.lots===1?'':'s'} (= ${qp.units} units)`:String(qty));
   if(sel.freeze&&qty>sel.freeze)return ts(`Quantity exceeds freeze limit ${sel.freeze}`,'e');
   if(!Number.isFinite(trigger)||trigger<=0)return ts('Enter a valid trigger price','e');
   if(!priceOnTick(trigger,tick))return ts(`Trigger must follow tick size ₹${tick}`,'e');
@@ -3827,7 +3892,7 @@ async function crG(){
   const afterTxt=marketPhaseFor(sel)==='open'?'':(tt==='IMMEDIATE'
     ?' · after hours: IMMEDIATE sends the child order NOW — it can be rejected until the next session; ABOVE/BELOW only arm the trigger'
     :' · after hours: stored now, armed during market hours');
-  if(!confirm(`GTT ${side} ${qty} ${sel.s||sel.k} · trigger ${tt} ₹${trigger}${ltpTxt} · product ${product}${gttType==='MULTIPLE'?' · bracket TARGET+STOPLOSS':''}${afterTxt}?`))return;
+  if(!confirm(`GTT ${side} ${qtyTxt} ${sel.s||sel.k} · trigger ${tt} ₹${trigger}${ltpTxt} · product ${product}${gttType==='MULTIPLE'?' · bracket TARGET+STOPLOSS':''}${afterTxt}?`))return;
   if($.gttBusy)return;$.gttBusy=true;
   try{
     await upstoxFetch(END.GTT_PLACE,{method:'POST',body:{

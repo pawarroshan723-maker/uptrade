@@ -136,6 +136,23 @@ A line-by-line check of `crG()` against the official place-GTT request-body docs
 
 ---
 
+## 3.11 QTY ↔ LOTS switch (added 2026-09-18, night)
+
+*"1 QTY = lots — add switch button qty and lots."* The broker quantity is **units on NSE/BSE/CDS but lots on MCX** (doc-verified), yet traders think in lots on every segment. The quantity field's label is now a two-button switch — in the **order ticket and the GTT form**:
+
+- **QTY** — the number is the **broker quantity** (units on NSE/BSE/CDS, lots on MCX): exactly what v3 receives. Native default for non-MCX picks; also the fallback for a directly-typed ticket on a fresh form.
+- **LOTS** — the number is **lots on any segment**; place / estimate / GTT convert it automatically (NSE/BSE/CDS: ×lot → units; MCX: passed through — its broker quantity *is* lots). Native default for MCX picks (1 QTY = 1 lot there, unambiguous).
+
+Details:
+
+- **Switching converts the number in place** — 150 units ↔ 2 lots; a non-divisible value snaps to 1 lot. The choice is **sticky** (`$.qtyPref`) for future non-MCX picks; **MCX always starts on LOTS**. A preference flip on a same-instrument re-pick converts the field too (its meaning changed — never silently).
+- **Confirm dialogs echo the conversion both ways**: `BUY 2 lots (= 150 units) NIFTY…`, `1 lot (= 100 units)` on MCX; the place request always carries the converted broker quantity (`quantity: 150` for 2 NIFTY lots, `quantity: 1` for 100 crude units).
+- **Validation is basis-aware**: whole lots in LOTS mode; unit multiples of the lot in QTY mode (MCX QTY mode = commodity units — `MCX quantity (units) must be a multiple of lot size 100`).
+- **Auto-fill and the margin estimator follow the active basis** (the fill toast says `1 lot (= 75 units of …)` in LOTS mode; the estimator estimates on the converted broker quantity).
+- Shared conversion: `qtyParts(form)` — single source of truth for `plO`, `crG` and `estMargin`.
+
+---
+
 ## 4. How `index.html` is organized
 
 Read it top-to-bottom in five layers:
@@ -304,9 +321,9 @@ node tests/run-all.js  # -> ALL SUITES GREEN
 | `doccheck.js` | 15 | analytics-token allow-list vs the official doc + CSP policy |
 | `core.js` | 24 | boot, token shift, navigation, trading guards, REST 401 demote-vs-logout |
 | `ottest.js` | 23 | order ticket v2 structure, auto-margin debounce/silent notes, manual-estimate toasts, no-token & closed-panel guards |
-| `gtttest.js` | 44 | GTT side-aware product (option BUY → NRML), picker exchange allow-list, MCX risk-confirm, 0.25% trigger pre-check, far-trigger guard, generic-failure diagnosis + error codes, MIS option-buy guard, MCX lots semantics, rejection reasons in history, instrumentIsOption, segment-aware market clock (NSE/CDS/MCX sessions), after-hours AMO gate (UDAPI100039/100074), MCX evening session stays live, GTT after-hours note, quantity auto-fill announced + reset on instrument change, trailing-gap 10% floor, dense bracket rules (no null hole) + doc shapes |
+| `gtttest.js` | 58 | GTT side-aware product (option BUY → NRML), picker exchange allow-list, MCX risk-confirm, 0.25% trigger pre-check, far-trigger guard, generic-failure diagnosis + error codes, MIS option-buy guard, MCX lots semantics, rejection reasons in history, instrumentIsOption, segment-aware market clock (NSE/CDS/MCX sessions), after-hours AMO gate (UDAPI100039/100074), MCX evening session stays live, GTT after-hours note, quantity auto-fill announced + reset on instrument change, trailing-gap 10% floor, dense bracket rules (no null hole) + doc shapes, QTY↔LOTS switch (conversion, broker-quantity on place/GTT, MCX units basis, sticky preference) |
 
-**150/150 green** as of 2026-09-18. `tests/helpers.js` boots the real `index.html`
+**164/164 green** as of 2026-09-18. `tests/helpers.js` boots the real `index.html`
 in jsdom with stubbed `fetch` / `WebSocket` / `IndexedDB`, so every suite
 exercises the shipped file rather than a copy of its logic.
 

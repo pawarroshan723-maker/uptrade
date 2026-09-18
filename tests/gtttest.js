@@ -329,16 +329,16 @@ const { boot, okpush, report } = require('./helpers');
   clock('2026-09-18T11:00:00');
   w.document.getElementById('TC').innerHTML = '';
   w.eval(`applyInstrumentDefaults('dO1', ${JSON.stringify(NIFTY_CE)})`);
-  ok('NSE pick → qty 75, announced, label carries the lot',
+  ok('NSE pick → qty 75, announced, QTY basis active on the switch',
     w.document.getElementById('oQ').value === '75' &&
     w.document.getElementById('TC').textContent.includes('auto-filled: 75') &&
-    w.document.querySelector('#oQ').closest('.fgrp').querySelector('label').textContent === 'Qty (lot 75)');
+    w.document.querySelector('#oQSw .qsw.on').textContent === 'QTY');
   w.eval(`applyInstrumentDefaults('dO1', ${JSON.stringify(CRUDE_CE)})`);
-  ok('MCX pick → qty 1 LOT, announced with the unit conversion, LOTS label',
+  ok('MCX pick → qty 1 lot, announced with the unit conversion, LOTS basis active',
     w.document.getElementById('oQ').value === '1' &&
-    w.document.getElementById('TC').textContent.includes('auto-filled: 1 LOT') &&
+    w.document.getElementById('TC').textContent.includes('auto-filled: 1 lot') &&
     w.document.getElementById('TC').textContent.includes('100 units') &&
-    w.document.querySelector('#oQ').closest('.fgrp').querySelector('label').textContent === 'Qty (LOTS)' &&
+    w.document.querySelector('#oQSw .qsw.on').textContent === 'LOTS' &&
     /LOTS/.test(w.document.getElementById('oQ').title));
   w.document.getElementById('TC').innerHTML = '';
   w.eval(`document.getElementById('oQ').value='3'; applyInstrumentDefaults('dO1', ${JSON.stringify(CRUDE_CE)})`);
@@ -349,9 +349,9 @@ const { boot, okpush, report } = require('./helpers');
   ok('instrument change with invalid qty snaps to the new lot (75)',
     w.document.getElementById('oQ').value === '75');
   w.eval(`applyInstrumentDefaults('dG1', ${JSON.stringify(NIFTY_CE)})`);
-  ok('GTT form qty auto-fills too (75, labelled)',
+  ok('GTT form qty auto-fills too (75, QTY basis)',
     w.document.getElementById('gQt').value === '75' &&
-    w.document.querySelector('#gQt').closest('.fgrp').querySelector('label').textContent === 'Qty (lot 75)');
+    w.document.querySelector('#gQSw .qsw.on').textContent === 'QTY');
 
   /* AMO select auto-sync on pick */
   clock('2026-09-18T18:10:00');
@@ -394,6 +394,75 @@ const { boot, okpush, report } = require('./helpers');
   ok('bracket rules are DENSE — no null hole in the serialized array (old rules[2] bug)',
     g15.rules.length === 3 && g15.rules.every(Boolean) &&
     g15.rules.map(r => r.strategy).join(',') === 'ENTRY,TARGET,STOPLOSS');
+
+  /* ---- 16. QTY ↔ LOTS switch ---- */
+  w.confirm = () => true;
+  clock('2026-09-18T11:00:00');
+  const sw = f => w.document.querySelector(`#${f === 'dO1' ? 'oQSw' : 'gQSw'} .qsw.on`)?.textContent;
+  const BANKNIFTY_CE = { k: 'NSE_FO|11111', s: 'BANKNIFTY26OCT60000CE', n: 'BANKNIFTY CE', type: 'CE', segment: 'NSE_FO', x: 'NSE', lot: 30, minimumLot: 30, tick: 0.05 };
+  const conf16 = [];
+  w.confirm = m => { conf16.push(String(m)); return true; };
+
+  w.eval(`$.ddSel.dO1=${JSON.stringify(NIFTY_CE)};document.getElementById('oI').value='NIFTY26OCT25000CE';applyInstrumentDefaults('dO1',$.ddSel.dO1)`);
+  ok('NSE pick defaults to the QTY basis (75 units)',
+    w.document.getElementById('oQ').value === '75' && sw('dO1') === 'QTY');
+  w.eval(`document.getElementById('oQ').value='150'; setQtyMode('dO1','lots')`);
+  ok('switch QTY→LOTS converts 150 units to 2 lots',
+    w.document.getElementById('oQ').value === '2' && sw('dO1') === 'LOTS');
+  setTicket(NIFTY_CE, 2, 123.05, 'false');
+  await w.eval('plO()');
+  await new Promise(r => setTimeout(r, 300));
+  ok('LOTS entry places the converted broker quantity (2 lots → 150 units)',
+    lastPlace14().quantity === 150 && lastPlace14().instrument_token === 'NSE_FO|56842');
+  ok('place confirm echoes the lots→units conversion',
+    conf16.some(m => m.includes('2 lots (= 150 units)')));
+  w.document.getElementById('TC').innerHTML = '';
+  const before16 = placeCnt14();
+  setTicket(NIFTY_CE, 2.5, 123.05, 'false');
+  await w.eval('plO()');
+  await new Promise(r => setTimeout(r, 300));
+  ok('fractional lots are blocked (whole number)',
+    placeCnt14() === before16 && w.document.getElementById('TC').textContent.includes('positive whole number'));
+  w.eval(`setQtyMode('dO1','qty')`);
+  ok('switch LOTS→QTY converts 2 lots back to 150 units',
+    w.document.getElementById('oQ').value === '150' && sw('dO1') === 'QTY');
+
+  w.eval(`$.ddSel.dO1=${JSON.stringify(CRUDE_CE)};document.getElementById('oI').value='CRUDEOIL26OCT10000CE';applyInstrumentDefaults('dO1',$.ddSel.dO1)`);
+  ok('MCX pick stays on the LOTS basis even with a QTY preference',
+    sw('dO1') === 'LOTS' && w.document.getElementById('oQ').value === '1');
+  w.eval(`setQtyMode('dO1','qty')`);
+  ok('MCX QTY basis = units of the commodity (1 lot → 100 units)',
+    w.document.getElementById('oQ').value === '100' && sw('dO1') === 'QTY');
+  conf16.length = 0;
+  setTicket(CRUDE_CE, 100, 584.1, 'false');
+  await w.eval('plO()');
+  await new Promise(r => setTimeout(r, 300));
+  ok('MCX units entry converts to broker LOTS (100 units → quantity 1)',
+    lastPlace14().quantity === 1 && lastPlace14().instrument_token === 'MCX_FO|47861');
+  ok('MCX confirm echoes the conversion both ways',
+    conf16.some(m => m.includes('1 lot (= 100 units)')));
+  w.document.getElementById('TC').innerHTML = '';
+  const before16c = placeCnt14();
+  setTicket(CRUDE_CE, 150, 584.1, 'false');
+  await w.eval('plO()');
+  await new Promise(r => setTimeout(r, 300));
+  ok('MCX units off-lot blocked with the lot size',
+    placeCnt14() === before16c && w.document.getElementById('TC').textContent.includes('lot size 100'));
+
+  w.eval(`setQtyMode('dO1','lots')`); /* pref → lots */
+  w.eval(`$.ddSel.dO1=${JSON.stringify(BANKNIFTY_CE)};document.getElementById('oI').value='BANKNIFTY26OCT60000CE';applyInstrumentDefaults('dO1',$.ddSel.dO1)`);
+  ok('sticky LOTS preference: a fresh NSE pick starts at 1 lot',
+    sw('dO1') === 'LOTS' && w.document.getElementById('oQ').value === '1');
+  w.eval(`$.ddSel.dG1=${JSON.stringify(NIFTY_CE)};applyInstrumentDefaults('dG1',$.ddSel.dG1)`);
+  ok('GTT form honors the LOTS preference too (1 lot)',
+    sw('dG1') === 'LOTS' && w.document.getElementById('gQt').value === '1');
+  w.eval(`document.getElementById('gTg').value='';document.getElementById('gSl').value='';document.getElementById('gTsl').value=''`);
+  setGtt(NIFTY_CE, 'BUY', 2, 230);
+  await w.eval('crG()');
+  await new Promise(r => setTimeout(r, 400));
+  const g16 = gttBodies().pop();
+  ok('GTT LOTS entry sends the converted quantity (2 lots → 150)',
+    g16.quantity === 150 && g16.type === 'SINGLE');
 
   process.exit(report('GTT+ORDER GUARD TESTS', R));
 })().catch(e => { console.error('HARNESS ERROR', e); process.exit(1); });
