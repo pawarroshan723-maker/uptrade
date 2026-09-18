@@ -72,12 +72,11 @@ The login card offers:
 
 ## 3.6 Order ticket v2 + auto margin estimate (added 2026-09-18)
 
-- **Rebuilt ticket layout** — the old single cramped 10-column row is gone. The ticket is now three semantic rows plus a footer bar (scoped `<style id="order-ticket-v2">`, appended last so it wins the cascade):
+- **Rebuilt ticket layout (dense)** — the old single cramped 10-column row is gone. The ticket is now two rows plus a footer bar (scoped `<style id="order-ticket-v2">`, appended last so it wins the cascade):
   1. **Instrument (wide) + BUY/SELL** toggle
-  2. **Quantity · Type · Price · Trigger** (price/trigger appear only for priced/stop types and the row self-balances)
-  3. **Product · Validity · AMO**
-  4. Footer: **live estimate results · ↻ re-estimate · PLACE BUY/SELL** (side-coloured, fixed min-width)
-  Rows are flex and stack automatically below 820 px (and under the touch-density mode); nothing overflows.
+  2. One dense self-wrapping row: **Quantity · Type · Price · Trigger · Product · Validity · AMO** — price/trigger appear only for priced/stop types and the row re-balances instead of leaving half-empty lines
+  3. Footer: **auto estimate results · ↻ re-estimate · PLACE BUY/SELL** on one line (stacks only on phones, where the field row becomes a 2-column grid)
+  Sizing is value-first: **13px semi-bold field text in 30px-high boxes** (bigger text, smaller boxes), 10.5px labels, 7-8px gutters — no wasted vertical space.
 - **🧮 Margin & charges now auto-fetch** — every ticket edit (qty/price/trigger typing, type/product/validity/AMO change, side toggle, instrument pick, panel open) re-runs the estimator after a 700 ms debounce (`otAuto()` → `estMargin({auto:true})`). Auto mode is **silent**: an incomplete ticket (wrong lot multiple, off-tick price) parks a muted note in the results box instead of toasting, a failed fetch shows the inline error, and in-flight estimates are retried so the last edit always wins. The ↻ button keeps the explicit, toasting behaviour. Still pre-trade only — nothing is placed.
 - `setS()` now preserves the place-button styling class and re-arms the auto estimate.
 

@@ -25,7 +25,7 @@ const { boot, okpush, report } = require('./helpers');
 
   /* ---- 1. structure ---- */
   ok('ticket uses order-form-v2 (not the old 10-col grid)', !!w.document.querySelector('#orderTicket .order-form-v2') && !w.document.querySelector('#orderTicket .compact-form-grid'));
-  ok('three semantic rows present', !!w.document.querySelector('#orderTicket .ot-r1') && !!w.document.querySelector('#orderTicket .ot-r2') && !!w.document.querySelector('#orderTicket .ot-r3'));
+  ok('dense layout: r1 (inst+side) + one r2 with all 7 fields', !!w.document.querySelector('#orderTicket .ot-r1') && !w.document.querySelector('#orderTicket .ot-r3') && w.document.querySelectorAll('#orderTicket .ot-r2 .fgrp').length === 7);
   ok('footer bar with estimate + actions', !!w.document.querySelector('#orderTicket .ot-footer') && !!w.document.querySelector('#orderTicket .ot-actions'));
   ok('place button carries ot-place', w.document.getElementById('oBn').className.includes('ot-place'));
 
