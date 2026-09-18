@@ -16,6 +16,10 @@
  *   8. Regular ticket: BUY option + Intraday product blocked client-side
  *   9. Order history shows the broker's status_message (rejection reason)
  *  10. instrumentIsOption: type master + symbol fallback, no equity false-positives
+ * 11. After-market (2026-09-18 evening): segment-aware IST clock, AMO gate on
+ *     place (UDAPI100039/100074), MCX evening session stays LIVE, GTT after-hours
+ *     note, and the quantity auto-fill is announced + reset on every instrument
+ *     change (a 1-LOT MCX fill used to be indistinguishable from the default).
  */
 const { boot, okpush, report } = require('./helpers');
 
@@ -58,6 +62,10 @@ const { boot, okpush, report } = require('./helpers');
   const origFetch = w.fetch;
   w.fetch = (u, o) => { bodies.push({ u: String(u), body: o && o.body }); return origFetch(u, o); };
   w.confirm = () => true;
+  /* Pin the IST clock: plO() now checks the market session (AMO gate), so the
+     suite must not depend on wall-clock time. Local-parsed wall time = IST for
+     the app's istClock() (getHours/getDay only). Friday 11:00 → all sessions open. */
+  w.istClock = () => new Date('2026-09-18T11:00:00');
 
   const gttCount = () => bodies.filter(b => b.u.includes('/v3/order/gtt/place')).length;
   const gttBodies = () => bodies.filter(b => b.u.includes('/v3/order/gtt/place'))
@@ -222,6 +230,137 @@ const { boot, okpush, report } = require('./helpers');
   await new Promise(r => setTimeout(r, 400));
   ok('far-from-LTP trigger requires an explicit confirm (declined → no request)',
     gttCount() === gttBeforeFar);
+
+  /* ---- 14. after-market clock + AMO gate + auto-fill announce ---- */
+  const clock = t => { w.istClock = () => new Date(t); };
+  const phaseAt = (t, g) => { clock(t); return w.eval(`marketPhase(${JSON.stringify(g)})`); };
+  ok('clock: NSE/BSE open Fri 09:15–15:30 only (11:00 open; 18:10/09:14/15:30/Sat closed)',
+    phaseAt('2026-09-18T11:00:00', 'EQ') === 'open' &&
+    phaseAt('2026-09-18T09:15:00', 'EQ') === 'open' &&
+    phaseAt('2026-09-18T18:10:00', 'EQ') === 'closed' &&
+    phaseAt('2026-09-18T09:14:00', 'EQ') === 'closed' &&
+    phaseAt('2026-09-18T15:30:00', 'EQ') === 'closed' &&
+    phaseAt('2026-09-19T11:00:00', 'EQ') === 'closed');
+  ok('clock: MCX evening session open 18:10 & 23:29, closed 23:30; CDS 17:00 close',
+    phaseAt('2026-09-18T18:10:00', 'COMM') === 'open' &&
+    phaseAt('2026-09-18T23:29:00', 'COMM') === 'open' &&
+    phaseAt('2026-09-18T23:30:00', 'COMM') === 'closed' &&
+    phaseAt('2026-09-18T16:59:00', 'CURR') === 'open' &&
+    phaseAt('2026-09-18T17:00:00', 'CURR') === 'closed');
+
+  w.confirm = () => true;
+  const placeCnt14 = () => bodies.filter(b => b.u.includes('/v3/order/place')).length;
+  const lastPlace14 = () => bodies.filter(b => b.u.includes('/v3/order/place'))
+    .map(b => (typeof b.body === 'string' ? JSON.parse(b.body) : b.body)).pop();
+  const setTicket = (sel, q, px, amo) => w.eval(`
+    $.ddSel.dO1=${JSON.stringify(sel)};
+    document.getElementById('oI').value=${JSON.stringify(sel.s)};
+    document.getElementById('oQ').value=${JSON.stringify(String(q))};
+    document.getElementById('oTy').value='LIMIT';
+    document.getElementById('oP').value=${JSON.stringify(String(px))};
+    document.getElementById('oPr').value='D';
+    document.getElementById('oAm').value=${JSON.stringify(amo)};
+    setS('BUY');`);
+
+  /* NSE after close: AMO confirm → declined */
+  clock('2026-09-18T18:10:00');
+  w.document.getElementById('TC').innerHTML = '';
+  const beforeAmo = placeCnt14();
+  w.confirm = m => !String(m).includes('Place as AMO?'); /* decline only the AMO offer */
+  setTicket(NIFTY_CE, 75, 123.05, 'false');
+  await w.eval('plO()');
+  await new Promise(r => setTimeout(r, 300));
+  ok('after close: declining AMO sends nothing + explains',
+    placeCnt14() === beforeAmo && w.document.getElementById('TC').textContent.includes('Market closed'));
+  /* accepted */
+  w.confirm = () => true;
+  await w.eval('plO()');
+  await new Promise(r => setTimeout(r, 300));
+  ok('after close: accepted AMO → is_amo:true sent, select flipped to Yes',
+    placeCnt14() === beforeAmo + 1 && lastPlace14().is_amo === true &&
+    w.document.getElementById('oAm').value === 'true');
+
+  /* MCX at the same 18:10 → evening session LIVE */
+  const msgs141 = [];
+  w.confirm = m => { msgs141.push(String(m)); return true; };
+  setTicket(CRUDE_CE, 1, 584.1, 'false');
+  await w.eval('plO()');
+  await new Promise(r => setTimeout(r, 300));
+  ok('MCX 18:10 is LIVE (evening session) — no AMO confirm, is_amo:false',
+    placeCnt14() === beforeAmo + 2 && lastPlace14().is_amo === false &&
+    !msgs141.some(m => m.includes('Place as AMO?')));
+
+  /* API window: 00:30 IST → blocked with the broker reason */
+  clock('2026-09-18T00:30:00');
+  w.document.getElementById('TC').innerHTML = '';
+  const beforeWin = placeCnt14();
+  setTicket(NIFTY_CE, 75, 123.05, 'true');
+  await w.eval('plO()');
+  await new Promise(r => setTimeout(r, 300));
+  ok('00:30 IST → UDAPI100074 block, no request',
+    placeCnt14() === beforeWin && w.document.getElementById('TC').textContent.includes('UDAPI100074'));
+
+  /* market open + AMO Yes → offered live instead */
+  clock('2026-09-18T11:00:00');
+  w.confirm = m => !String(m).includes('live order instead?'); /* declined → nothing sent */
+  await w.eval('plO()');
+  await new Promise(r => setTimeout(r, 300));
+  const declinedCnt = placeCnt14();
+  w.confirm = () => true;
+  await w.eval('plO()');
+  await new Promise(r => setTimeout(r, 300));
+  ok('market open: AMO Yes → offered live; accepted → is_amo:false + select No',
+    declinedCnt === beforeWin && placeCnt14() === declinedCnt + 1 &&
+    lastPlace14().is_amo === false && w.document.getElementById('oAm').value === 'false');
+
+  /* GTT after-hours note */
+  clock('2026-09-18T18:10:00');
+  const gttBefore14 = gttCount();
+  const msgs142 = [];
+  w.confirm = m => { msgs142.push(String(m)); return false; };
+  setGtt(NIFTY_CE, 'BUY', 75, 230); /* 5 from LTP 225 — no far-trigger confirm */
+  await w.eval('crG()');
+  await new Promise(r => setTimeout(r, 400));
+  ok('GTT after hours: confirm says stored-now/armed-in-session (and is declinable)',
+    msgs142.some(m => m.includes('after hours: stored now')) && gttCount() === gttBefore14);
+
+  /* quantity auto-fill: announced + reset on every instrument change */
+  w.confirm = () => true;
+  clock('2026-09-18T11:00:00');
+  w.document.getElementById('TC').innerHTML = '';
+  w.eval(`applyInstrumentDefaults('dO1', ${JSON.stringify(NIFTY_CE)})`);
+  ok('NSE pick → qty 75, announced, label carries the lot',
+    w.document.getElementById('oQ').value === '75' &&
+    w.document.getElementById('TC').textContent.includes('auto-filled: 75') &&
+    w.document.querySelector('#oQ').closest('.fgrp').querySelector('label').textContent === 'Qty (lot 75)');
+  w.eval(`applyInstrumentDefaults('dO1', ${JSON.stringify(CRUDE_CE)})`);
+  ok('MCX pick → qty 1 LOT, announced with the unit conversion, LOTS label',
+    w.document.getElementById('oQ').value === '1' &&
+    w.document.getElementById('TC').textContent.includes('auto-filled: 1 LOT') &&
+    w.document.getElementById('TC').textContent.includes('100 units') &&
+    w.document.querySelector('#oQ').closest('.fgrp').querySelector('label').textContent === 'Qty (LOTS)' &&
+    /LOTS/.test(w.document.getElementById('oQ').title));
+  w.document.getElementById('TC').innerHTML = '';
+  w.eval(`document.getElementById('oQ').value='3'; applyInstrumentDefaults('dO1', ${JSON.stringify(CRUDE_CE)})`);
+  ok('same-instrument re-pick keeps valid 3, no re-announce',
+    w.document.getElementById('oQ').value === '3' &&
+    !w.document.getElementById('TC').textContent.includes('auto-filled'));
+  w.eval(`document.getElementById('oQ').value='40'; applyInstrumentDefaults('dO1', ${JSON.stringify(NIFTY_CE)})`);
+  ok('instrument change with invalid qty snaps to the new lot (75)',
+    w.document.getElementById('oQ').value === '75');
+  w.eval(`applyInstrumentDefaults('dG1', ${JSON.stringify(NIFTY_CE)})`);
+  ok('GTT form qty auto-fills too (75, labelled)',
+    w.document.getElementById('gQt').value === '75' &&
+    w.document.querySelector('#gQt').closest('.fgrp').querySelector('label').textContent === 'Qty (lot 75)');
+
+  /* AMO select auto-sync on pick */
+  clock('2026-09-18T18:10:00');
+  w.eval(`applyInstrumentDefaults('dO1', ${JSON.stringify(NIFTY_CE)})`);
+  ok('after-hours NSE pick auto-sets AMO Yes',
+    w.document.getElementById('oAm').value === 'true');
+  w.eval(`applyInstrumentDefaults('dO1', ${JSON.stringify(CRUDE_CE)})`);
+  ok('MCX evening pick keeps AMO No (session still open)',
+    w.document.getElementById('oAm').value === 'false');
 
   process.exit(report('GTT+ORDER GUARD TESTS', R));
 })().catch(e => { console.error('HARNESS ERROR', e); process.exit(1); });

@@ -109,6 +109,8 @@ Response:
   "metadata": { "latency": 30 } }
 ```
 Doc notes the app already honors: `market_protection: -1` default (auto), `slice` auto-slicing on freeze breach, `is_amo` **auto-overridden** during market hours, optional `X-Algo-Name` header for exchange-approved algos.
+**Quantity semantics (official request-body doc, verified 2026-09-18):** *"For commodity - number of lots is accepted. For other Futures & Options and equities - number of units is accepted"* — the basis of the MCX-LOTS ticket behavior (README §3.8/§3.9).
+**AMO / after-hours (verified 2026-09-18, README §3.9):** the docs say *"If you intend to place an order outside of market hours, the 'is_amo' should be set to 'true'"*; error table pins the edges — **UDAPI100039** AMO rejected during market hours, **UDAPI100074** the place API itself is open only **05:30–24:00 IST**. Sessions are segment-aware: NSE/BSE 09:15–15:30, CDS 09:00–17:00, MCX non-agri 09:00–~23:30 (≈23:55 while US DST is off). **UDAPI1161** exists for MCX-via-API being temporarily disabled broker-side — surfaced verbatim if ever hit. GTT place has **no** timing restriction (broker-side trigger; child order only on trigger — IMMEDIATE sends it at once).
 
 ### 4.2 GTT V3 (place) — `POST /v3/order/gtt/place`
 ```json

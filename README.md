@@ -108,6 +108,24 @@ The rejection-reason surfacing (§3.7) exposed the real causes of the day's fail
 
 ---
 
+## 3.9 After-market orders + visible quantity auto-fill (added 2026-09-18, evening)
+
+Two live reports: *"Orders quantity not auto fill"* and *"check after market allows GTT and normal order"*.
+
+**Quantity auto-fill — now unmissable.** The fill was already deterministic, but a **1-LOT MCX fill is indistinguishable from the untouched default `1`**, and a same-lot carry-over looked like nothing happened. The Upstox place-order docs also state it verbatim: *"For commodity - number of lots is accepted. For other Futures & Options and equities - number of units"* — official confirmation of §3.8. Now, on **every instrument change**:
+
+- the quantity resets to that instrument's basis — **1 (MCX lot)** or **the lot size (NSE/BSE/CDS units)** — re-picking the *same* instrument keeps a valid quantity;
+- an **info toast announces the fill** ("Quantity auto-filled: 1 LOT = 100 units of … (MCX counts lots)" / "Quantity auto-filled: 75 (1 lot of …)");
+- the field **label carries the basis** — `Qty (LOTS)` vs `Qty (lot 75)` vs `Quantity` — and the input's tooltip explains units vs lots.
+
+**After-market — segment-aware market clock.** `istClock()`/`marketPhase()` compute the IST session for the ticket's instrument: **NSE/BSE equity & F&O 09:15–15:30 · currency (CDS) 09:00–17:00 · MCX 09:00–~23:30 (≈23:55 while US DST is off)**, Mon–Fri. Exchange holidays aren't knowable client-side — the broker stays the final arbiter and its rejection reasons surface via the §3.7 passthrough. Then:
+
+- **Normal orders**: a live order is only valid inside the session. Outside it the broker requires **AMO** (`is_amo: true`) — the ticket **auto-sets AMO to Yes on instrument pick and panel open** (silently; the field shows the flip), and `plO()` re-checks at place time: after hours with AMO off you get *"Market is closed… Place as AMO?"* — declining sends **nothing**; accepting flips the flag and tags the confirm + success toast with `AMO — queued for the next session`. The reverse is guarded too: **AMO during market hours is rejected by the broker (`UDAPI100039`)** — the app offers to place live instead. The order API itself is closed 00:00–05:30 IST (`UDAPI100074`) — blocked up front with that reason.
+- **MCX evening session**: crude/gold/etc. trade until ~23:30 IST, so an 18:10 crude ticket is **LIVE — no AMO is forced** (this is exactly the live retry scenario).
+- **GTT after hours: allowed.** GTT placement is broker-side (no exchange order until the trigger fires), so it works off-hours — the confirm now says *"after hours: stored now, armed during market hours"*. Caveat spelled out too: **IMMEDIATE** entries send the child LIMIT order to the exchange straight away, which off-hours can be rejected — ABOVE/BELOW only arm the trigger.
+
+---
+
 ## 4. How `index.html` is organized
 
 Read it top-to-bottom in five layers:
@@ -276,9 +294,9 @@ node tests/run-all.js  # -> ALL SUITES GREEN
 | `doccheck.js` | 15 | analytics-token allow-list vs the official doc + CSP policy |
 | `core.js` | 24 | boot, token shift, navigation, trading guards, REST 401 demote-vs-logout |
 | `ottest.js` | 23 | order ticket v2 structure, auto-margin debounce/silent notes, manual-estimate toasts, no-token & closed-panel guards |
-| `gtttest.js` | 25 | GTT side-aware product (option BUY → NRML), picker exchange allow-list, MCX risk-confirm, 0.25% trigger pre-check, far-trigger guard, generic-failure diagnosis + error codes, MIS option-buy guard, MCX lots semantics, rejection reasons in history, instrumentIsOption |
+| `gtttest.js` | 40 | GTT side-aware product (option BUY → NRML), picker exchange allow-list, MCX risk-confirm, 0.25% trigger pre-check, far-trigger guard, generic-failure diagnosis + error codes, MIS option-buy guard, MCX lots semantics, rejection reasons in history, instrumentIsOption, segment-aware market clock (NSE/CDS/MCX sessions), after-hours AMO gate (UDAPI100039/100074), MCX evening session stays live, GTT after-hours note, quantity auto-fill announced + reset on instrument change |
 
-**131/131 green** as of 2026-09-18. `tests/helpers.js` boots the real `index.html`
+**146/146 green** as of 2026-09-18. `tests/helpers.js` boots the real `index.html`
 in jsdom with stubbed `fetch` / `WebSocket` / `IndexedDB`, so every suite
 exercises the shipped file rather than a copy of its logic.
 

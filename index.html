@@ -1482,7 +1482,7 @@ body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
         <div class="fgrp" id="oTG" style="display:none"><label>Trigger</label><input type="number" class="fi" id="oTr" step="0.05" oninput="otAuto()"></div>
         <div class="fgrp"><label>Product</label><select class="fi" id="oPr" onchange="otAuto()"><option value="D">Delivery</option><option value="I">Intraday</option><option value="MTF">MTF</option></select></div>
         <div class="fgrp"><label>Validity</label><select class="fi" id="oVl" onchange="otAuto()"><option value="DAY">DAY</option><option value="IOC">IOC</option></select></div>
-        <div class="fgrp ot-amo"><label>AMO</label><select class="fi" id="oAm" onchange="otAuto()"><option value="false">No</option><option value="true">Yes</option></select></div>
+        <div class="fgrp ot-amo"><label>AMO</label><select class="fi" id="oAm" onchange="otAuto()" title="After Market Order — required for live placement outside the instrument's session (NSE/BSE Mon–Fri 09:15–15:30, currency 09:00–17:00, MCX 09:00–~23:30). Rejected during market hours (UDAPI100039). The order API itself is open 05:30–24:00 IST (UDAPI100074). Auto-set from the market clock on instrument pick; the place button re-checks it."><option value="false">No</option><option value="true">Yes</option></select></div>
       </div>
       <div class="ot-footer">
         <div class="ot-estimate margin-results" id="oMarginR"><span class="muted-note">Auto margin &amp; charges — fills in as you complete the ticket. Nothing is placed.</span></div>
@@ -2437,6 +2437,37 @@ async function ensureInstrumentMasterOnStartup(){
 function chooseInstrumentMasterFile(){
   if($.masterLoading)return;const input=document.createElement('input');input.type='file';input.accept='.gz,.json,application/gzip,application/json';input.hidden=true;document.body.appendChild(input);const cleanup=()=>setTimeout(()=>input.remove(),0);input.addEventListener('change',async()=>{const file=input.files?.[0];if(!file){cleanup();return;}$.masterLoading=true;refreshActiveInstrumentSearch();ts(`Importing ${file.name}…`,'i');try{const buffer=await file.arrayBuffer(),updatedAt=Date.now(),count=await instrumentMasterFromBuffer(buffer,file.name,{name:file.name,source:'import',updatedAt,lastModified:file.lastModified});try{await instrumentCacheWrite(buffer,{name:file.name,source:'import',updatedAt,lastModified:file.lastModified});$.instrumentMasterMeta.cached=true;}catch(cacheError){console.warn('Instrument master cache write',cacheError);ts('File imported for this session, but persistent cache was unavailable','w');}ts(`${count.toLocaleString('en-IN')} instruments imported and cached. This cache remains until you replace it.`,'s');}catch(e){ts('Instrument master import: '+e.message,'e');}finally{$.masterLoading=false;refreshActiveInstrumentSearch();cleanup();}});input.addEventListener('cancel',cleanup);input.click();
 }
+/* ============ Market clock (IST) — after-hours order handling (2026-09-18) ============
+   Upstox v3 Place Order docs: the API accepts orders 05:30–24:00 IST (UDAPI100074
+   outside that); LIVE orders only inside the instrument's exchange session; outside
+   the session an order must be AMO (is_amo=true), and AMO is REJECTED during market
+   hours (UDAPI100039). Sessions differ by segment — MCX non-agri (crude, metals,
+   energy) runs 09:00–23:30 IST (till ~23:55 while US DST is off), currency (CDS)
+   09:00–17:00, NSE/BSE equity & F&O 09:15–15:30, all Mon–Fri. Exchange holidays are
+   not knowable client-side — the broker stays the final arbiter and its rejection
+   reasons surface via the error passthrough. GTT placement is broker-side (no
+   exchange order until the trigger fires), so it works after hours. */
+function istClock(d=new Date()){return new Date(d.getTime()+(d.getTimezoneOffset()+330)*60000);}
+function marketPhase(group){
+  const d=istClock(),day=d.getDay();if(day===0||day===6)return'closed';
+  const m=d.getHours()*60+d.getMinutes(),g=String(group||'').toUpperCase();
+  if(g==='COMM'||g==='MCX'){const close=(d.getMonth()>=2&&d.getMonth()<=9)?1410:1435;return(m>=540&&m<close)?'open':'closed';}
+  if(g==='CURR')return(m>=540&&m<1020)?'open':'closed';
+  return(m>=555&&m<930)?'open':'closed';
+}
+function marketPhaseFor(sel){const s=sel||{};
+  /* MCX_FO buckets as 'FO' in instrumentGroup (chart roll logic depends on that)
+     — detect MCX by key prefix so commodity picks get the 09:00–~23:30 session. */
+  return marketPhase(/^MCX/i.test(String(s.k||''))||instrumentGroup(s)==='COMM'?'COMM':instrumentGroup(s));}
+function placeApiOpen(){return istClock().getHours()*60+istClock().getMinutes()>=330;}
+window.istClock=istClock;window.marketPhase=marketPhase;window.placeApiOpen=placeApiOpen;
+/* Keep the AMO select in step with the session — silent: the field shows the
+   flip, the place-time confirm explains it, plO() still guards mismatches. */
+function amoSyncSelect(inst){
+  const am=document.getElementById('oAm');if(!am)return;
+  const sel=inst||$.ddSel?.dO1,want=marketPhaseFor(sel||{})==='open'?'false':'true';
+  if(am.value!==want)am.value=want;
+}
 function applyProductForInstrument(inst){
   const sel=document.getElementById('oPr');if(!sel)return;
   const grp=instrumentGroup(inst||{}),isDerivative=grp==='FO'||grp==='CURR'||grp==='COMM';
@@ -2449,18 +2480,40 @@ function applyProductForInstrument(inst){
   else if(!['D','I','MTF'].includes(keep)){sel.value='D';}
   const hint=document.getElementById('oDerivHint');if(hint)hint.style.display=isDerivative?'':'none';
 }
-function applyInstrumentDefaults(ddId,inst){
+function applyInstrumentDefaults(ddId,inst,opts={}){
   const lot=Math.max(1,Math.round(Number(inst.minimumLot||inst.lot||1))||1),tick=Number(inst.tick)||.05;
-  /* AUDIT-API (F-1) CONFIRMED LIVE (2026-09-18): MCX commodity quantity is
-     in LOTS on the v3 APIs — a Q:100 BUY of a 100-lot crude CE demanded
-     ₹58,40,000 margin (100 lots × 100 barrels). MCX tickets therefore count
-     LOTS (default/step 1, always reset on pick); NSE/BSE/CDS stays in units
-     with lot-multiple validation as before. */
+  /* AUDIT-API (F-1) CONFIRMED LIVE (2026-09-18) and in the v2/v3 Place Order
+     request-body docs ("For commodity - number of lots is accepted. For other
+     Futures & Options and equities - number of units"): MCX quantity is LOTS —
+     a Q:100 BUY of a 100-lot crude CE demanded ₹58,40,000 margin (100 lots ×
+     100 barrels). MCX tickets count LOTS (default/step 1); NSE/BSE/CDS stays
+     in units with lot-multiple validation as before. */
   const isMcx=/^MCX/i.test(String(inst?.k||''))||instrumentGroup(inst||{})==='COMM';
+  /* 2026-09-18 ("Orders quantity not auto fill"): the fill was already
+     deterministic, but a 1-LOT MCX fill is indistinguishable from the
+     untouched default, and a same-lot carry-over looked like nothing happened.
+     Now EVERY instrument change resets the field to that instrument's basis
+     AND says so — the label carries the lot, the title explains the basis and
+     a toast announces the fill (background/chart/OC callers pass quiet:true;
+     they navigate or toast the lot themselves). Re-picking the same instrument
+     keeps a valid quantity. */
+  const key=String(inst?.k||'');
   const syncQty=(el)=>{if(!el)return;
-    if(isMcx){el.min=1;el.step=1;el.value=1;return;}
-    el.min=lot;el.step=lot;const cur=parseInt(el.value,10);if(!Number.isInteger(cur)||cur<=0||cur%lot!==0)el.value=lot;};
-  if(ddId==='dO1'){syncQty(document.getElementById('oQ'));const op=document.getElementById('oP'),ot=document.getElementById('oTr');if(op)op.step=tick;if(ot)ot.step=tick;applyProductForInstrument(inst);}
+    const changed=el.dataset.lotKey!==key;el.dataset.lotKey=key;
+    const lab=el.closest('.fgrp')?.querySelector('label');
+    if(isMcx){
+      el.min=1;el.step=1;
+      if(lab)lab.textContent='Qty (LOTS)';
+      el.title=`MCX quantity counts LOTS — 1 lot = ${lot} units. Auto-filled to 1 lot on instrument pick.`;
+      if(changed){el.value=1;if(!opts.quiet)ts(`Quantity auto-filled: 1 LOT = ${lot} units of ${inst?.s||key} (MCX counts lots)`,'i');}
+      return;}
+    el.min=lot;el.step=lot;
+    if(lab)lab.textContent=lot>1?`Qty (lot ${lot})`:'Quantity';
+    el.title=lot>1?`Quantity is in UNITS — multiples of ${lot} (1 lot = ${lot} units). Auto-filled to 1 lot on instrument pick.`:'Quantity is in units (lot size 1).';
+    const cur=parseInt(el.value,10);
+    if(changed){el.value=lot;if(!opts.quiet&&lot>1)ts(`Quantity auto-filled: ${lot} (1 lot of ${inst?.s||key})`,'i');return;}
+    if(!Number.isInteger(cur)||cur<=0||cur%lot!==0)el.value=lot;};
+  if(ddId==='dO1'){syncQty(document.getElementById('oQ'));const op=document.getElementById('oP'),ot=document.getElementById('oTr');if(op)op.step=tick;if(ot)ot.step=tick;applyProductForInstrument(inst);amoSyncSelect(inst);}
   if(ddId==='dG1'){syncQty(document.getElementById('gQt'));const gt=document.getElementById('gTr');if(gt)gt.step=tick;}
 }
 /* AUDIT FIX (round 4): the decimal-scaled compare pre-rounded the NUMERATOR
@@ -2820,7 +2873,7 @@ function selI(k,s){
       }
     }
   }catch(e){}
-proSetActiveInstrument(inst||{k,s,n:s,x:String(k||'').split('_')[0]},true);$.cKey=k;$.cSym=s;$.cd=[];document.getElementById('cSN').textContent=s;['dC1','dO1','dA1'].forEach(id=>{const inp=document.querySelector(`#${id} input`);if(inp)inp.value=s;$.ddSel[id]=inst||{k,s};});if(inst){try{applyInstrumentDefaults('dO1',inst);}catch(e){}}nav('chart');
+proSetActiveInstrument(inst||{k,s,n:s,x:String(k||'').split('_')[0]},true);$.cKey=k;$.cSym=s;$.cd=[];document.getElementById('cSN').textContent=s;['dC1','dO1','dA1'].forEach(id=>{const inp=document.querySelector(`#${id} input`);if(inp)inp.value=s;$.ddSel[id]=inst||{k,s};});if(inst){try{applyInstrumentDefaults('dO1',inst,{quiet:true});}catch(e){}}nav('chart');
 }
 
 function setupGlobalSearch(){const gS=document.getElementById('gS');let t=null;gS.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(()=>gSr(gS.value),150);});gS.addEventListener('focus',()=>{if(gS.value)gSr(gS.value);});gS.addEventListener('blur',()=>setTimeout(gSh,250));}
@@ -3426,7 +3479,24 @@ async function plO(){
   /* Upstox rejects MIS (Intraday) BUYs on options — the F&O hint's rule —
      block it client-side instead of eating an exchange rejection. */
   if(side==='BUY'&&oPrd==='I'&&instrumentIsOption(sel))return ts('Intraday (MIS) is not allowed for buying options — switch Product to Delivery (NRML)','e');
-  if(!confirm(`${side} ${qty} ${sel.s||sel.k} · ${orderType}${orderType==='MARKET'||orderType==='SL-M'?'':` @ ${price}`}${['SL','SL-M'].includes(orderType)?` trigger ${trigger}`:''}?`))return;
+  /* After-hours (2026-09-18): a LIVE order is only valid inside the
+     instrument's exchange session (NSE/BSE 09:15–15:30 · CDS 09:00–17:00 ·
+     MCX 09:00–~23:30, Mon–Fri). Outside it the broker requires AMO
+     (is_amo=true) — UDAPI100039 rejects AMO during market hours, and the
+     place API itself is closed 00:00–05:30 IST (UDAPI100074). Check the
+     ticket against the market clock and offer the correct variant. */
+  if(!placeApiOpen())return ts('Upstox accepts orders only 05:30 AM–12:00 AM IST (UDAPI100074) — retry after 5:30 AM','e');
+  const amoOn=()=>document.getElementById('oAm')?.value==='true';
+  if(marketPhaseFor(sel)!=='open'){
+    if(!amoOn()){
+      if(!confirm(`Market is closed for ${isMcx?'MCX (session Mon–Fri 09:00–~23:30 IST)':'this segment (NSE/BSE session Mon–Fri 09:15–15:30 IST)'}. After-hours orders must be AMO — queued for the next session. Place as AMO?`))return ts('Market closed — nothing sent. AMO Yes queues the order for the next session.','i');
+      const am=document.getElementById('oAm');if(am)am.value='true';
+    }
+  }else if(amoOn()){
+    if(!confirm('Market is OPEN — AMO is rejected during market hours (UDAPI100039). Place as a live order instead?'))return;
+    const am=document.getElementById('oAm');if(am)am.value='false';
+  }
+  if(!confirm(`${side} ${qty} ${sel.s||sel.k} · ${orderType}${orderType==='MARKET'||orderType==='SL-M'?'':` @ ${price}`}${['SL','SL-M'].includes(orderType)?` trigger ${trigger}`:''}${amoOn()?' · AMO (next session)':''}?`))return;
   const btn=document.getElementById('oBn');if(!btn||btn.disabled||$.orderBusy)return;btn.disabled=true;$.orderBusy=true;
   try{
     const d=await upstoxFetch(END.ORDER_PLACE,{method:'POST',body:{
@@ -3439,7 +3509,7 @@ async function plO(){
     }});
     const ids=d.data?.order_ids||[d.data?.order_id].filter(Boolean);
     const lat=d.metadata?.latency;
-    ts(`Order placed${ids.length?': '+ids.join(', '):''}${willSlice?' (sliced)':''}${lat!=null?` · broker ${lat} ms`:''}`,'s');
+    ts(`Order placed${ids.length?': '+ids.join(', '):''}${willSlice?' (sliced)':''}${amoOn()?' · AMO — queued for the next session':''}${lat!=null?` · broker ${lat} ms`:''}`,'s');
     proInvalidate('/order/');setTimeout(ldO,900);
   }catch(e){ts('Order: '+e.message,'e');}
   finally{btn.disabled=false;$.orderBusy=false;}
@@ -3721,8 +3791,15 @@ async function crG(){
     }catch(e){/* LTP unavailable — the broker will validate */}
   }
   /* README §8 convention: every trading action is confirm()-gated — GTT place
-     was the one exception; gate it too (echoes side, qty, trigger, product). */
-  if(!confirm(`GTT ${side} ${qty} ${sel.s||sel.k} · trigger ${tt} ₹${trigger}${ltpTxt} · product ${product}${gttType==='MULTIPLE'?' · bracket TARGET+STOPLOSS':''}?`))return;
+     was the one exception; gate it too (echoes side, qty, trigger, product).
+     After hours (2026-09-18): GTT placement is broker-side and works off-hours
+     (no exchange order until the trigger fires), but IMMEDIATE sends the child
+     LIMIT order to the exchange straight away — which off-hours can be
+     rejected. Say so up front instead of eating the rejection. */
+  const afterTxt=marketPhaseFor(sel)==='open'?'':(tt==='IMMEDIATE'
+    ?' · after hours: IMMEDIATE sends the child order NOW — it can be rejected until the next session; ABOVE/BELOW only arm the trigger'
+    :' · after hours: stored now, armed during market hours');
+  if(!confirm(`GTT ${side} ${qty} ${sel.s||sel.k} · trigger ${tt} ₹${trigger}${ltpTxt} · product ${product}${gttType==='MULTIPLE'?' · bracket TARGET+STOPLOSS':''}${afterTxt}?`))return;
   if($.gttBusy)return;$.gttBusy=true;
   try{
     await upstoxFetch(END.GTT_PLACE,{method:'POST',body:{
@@ -4876,7 +4953,7 @@ function toggleQuickPanel(id,button,force){
   const panel=document.getElementById(id);if(!panel)return;const show=force===undefined?panel.hidden:!!force;panel.hidden=!show;
   const btn=button||document.getElementById(id==='orderTicket'?'orderTicketBtn':'gttTicketBtn');
   if(btn){btn.classList.toggle('bo',show);btn.classList.toggle('bp',!show);btn.textContent=show?'− Close':id==='orderTicket'?'＋ New order':'＋ Create GTT';btn.setAttribute('aria-expanded',String(show));}
-  if(show){if(id==='orderTicket'){tPF();otAuto();/* prefilled ticket → estimate right away */}setTimeout(()=>panel.querySelector('input')?.focus(),40);}
+  if(show){if(id==='orderTicket'){tPF();amoSyncSelect();otAuto();/* prefilled ticket → sync AMO to the session + estimate right away */}setTimeout(()=>panel.querySelector('input')?.focus(),40);}
 }
 function showQuickPanel(id,buttonId){const panel=document.getElementById(id);if(panel?.hidden)toggleQuickPanel(id,document.getElementById(buttonId),true);}
 
@@ -5245,7 +5322,7 @@ async function ocLegToOrder(key, side, strike){
   const openTicket=(picked,note,kind)=>{
     $.ddSel.dO1=picked;
     const inp=document.querySelector('#dO1 input');if(inp)inp.value=picked.s;
-    try{applyInstrumentDefaults('dO1',picked);}catch(e){}
+    try{applyInstrumentDefaults('dO1',picked,{quiet:true});}catch(e){}
     setS('BUY');
     nav('orders');showQuickPanel('orderTicket','orderTicketBtn');
     ts(note,kind);
