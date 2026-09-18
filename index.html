@@ -1505,7 +1505,7 @@ body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
     <div class="page-actions"><button type="button" class="btn bp" id="gttTicketBtn" onclick="toggleQuickPanel('gttTicket',this)">＋ Create GTT</button><button type="button" class="icon-btn" onclick="ldG()" title="Refresh">↻</button></div>
   </div>
   <section class="quick-drawer cd" id="gttTicket" hidden>
-    <div class="quick-head"><span>New GTT order</span><span class="qh-fohint" style="display:inline-block" title="Upstox rejects Intraday (MIS) on buying options, so option BUY GTTs are placed as NRML (D); futures/equity follow the segment default.">ℹ️ Option BUY → NRML (Intraday not allowed on option buying)</span><button type="button" class="mcl" onclick="toggleQuickPanel('gttTicket',document.getElementById('gttTicketBtn'),false)">✕</button></div>
+    <div class="quick-head"><span>New GTT order</span><span class="qh-fohint" style="display:inline-block" title="The GTT picker is limited to NSE/BSE equity &amp; F&amp;O — the broker API rejects MCX commodity GTTs with a generic error. Upstox does not allow Intraday (MIS) on buying options, so option BUY GTTs are placed as NRML (D); futures/equity follow the segment default.">ℹ️ NSE/BSE equity &amp; F&amp;O · Option BUY → NRML</span><button type="button" class="mcl" onclick="toggleQuickPanel('gttTicket',document.getElementById('gttTicketBtn'),false)">✕</button></div>
     <div class="compact-form-grid gtt-form-grid">
       <div class="fgrp span-2"><label>Instrument</label><div class="dd" id="dG1"><input class="fi" id="gI" placeholder="Search instrument…" autocomplete="off"><div class="ddl" id="dG1_L"></div></div></div>
       <div class="fgrp"><label>Side</label><select class="fi" id="gSd"><option value="BUY">BUY</option><option value="SELL">SELL</option></select></div>
@@ -1874,10 +1874,15 @@ async function rawUpstoxFetch(ep,{method='GET',body=null,query='',headersAdd={}}
   if(raw){ try{d=JSON.parse(raw);}catch{d={message:raw.slice(0,300)};} }
   if(!r.ok||d.status==='error'){
     const err=d.errors?.[0];
-    const ee=new Error(err?.message||err?.errorCode||d.message||`HTTP ${r.status}`);
+    const code=err?.errorCode||err?.error_code||'';
+    /* AUDIT (2026-09-18): keep the broker's error CODE next to the message —
+       for the GTT generic failure ("Something went wrong… please contact us")
+       the "(UDAPI100500)" suffix is the only machine-checkable detail. */
+    const ee=new Error((err?.message||d.message||`HTTP ${r.status}`)+(code?` (${code})`:''));
     /* AUDIT-C3: carry the HTTP status so isAuthFailure() can act on a hard 401
        even when Upstox returns a generic message body. */
     ee.status=r.status;
+    ee.code=code;
     throw ee;
   }
   return d;
@@ -2085,7 +2090,15 @@ function instrumentGroup(inst){const s=String(inst.segment||String(inst.k||'').s
 function instrumentAllowed(inst,contextId){
   /* Underlying guard: hide indices with no listed option contracts from the OC picker. */
   if(contextId==='dOC'&&instrumentGroup(inst)==='INDEX'&&!optionableIndexSet().has(inst.k))return false;
-  const cfg=INSTRUMENT_CONTEXTS[contextId]||INSTRUMENT_CONTEXTS.global,segments=cfg.segments.split(',');return segments.includes('ALL')||segments.includes(instrumentGroup(inst));
+  const cfg=INSTRUMENT_CONTEXTS[contextId]||INSTRUMENT_CONTEXTS.global,segments=cfg.segments.split(',');
+  /* AUDIT FIX (2026-09-18): cfg.exchanges was declared but never enforced, so
+     MCX instruments (segment MCX_FO — which instrumentGroup buckets as 'FO')
+     leaked into the NSE/BSE-only GTT picker (dG1); the crude-oil CE GTT then
+     died at the broker with only the generic "Something went wrong" error.
+     Honor the exchange allow-list now (a missing x stays permissive). */
+  const exs=String(cfg.exchanges||'ALL').split(','),ex=String(inst?.x||'').toUpperCase();
+  if(ex&&!exs.includes('ALL')&&!exs.includes(ex))return false;
+  return segments.includes('ALL')||segments.includes(instrumentGroup(inst));
 }
 /* True for option instruments (CE/PE). Trusts the master's instrument type;
    falls back to the trading-symbol shape (strike digits immediately before
@@ -3661,9 +3674,30 @@ async function crG(){
     rules.splice(1,0,{strategy:'TARGET',trigger_type:'IMMEDIATE',trigger_price:target,market_protection:-1});
     gttType='MULTIPLE';
   }
+  /* 2026-09-18: the broker API rejected a crude-oil CE GTT with its generic
+     "Something went wrong" EVEN on the correct NRML product — the GTT picker
+     is NSE/BSE-only now (instrumentAllowed enforces cfg.exchanges), but an
+     older pick or prefill can still carry an MCX instrument: make the risk
+     explicit before the request. */
+  if(/^MCX/i.test(String(sel.k||''))||instrumentGroup(sel)==='COMM'){
+    if(!confirm('Commodity (MCX) GTT warning: the broker API has rejected MCX GTTs with a generic "Something went wrong" error (observed 2026-09-18 on a crude-oil CE, even with the NRML product). The Upstox app may still accept them. Place anyway?'))return;
+  }
+  /* Upstox GTT policy: the ENTRY trigger must sit at least 0.25% away from
+     LTP — closer triggers come back as the same generic broker error. Pre-
+     check when a live price is available (IMMEDIATE sends at once, so the
+     rule doesn't apply); on LTP failure, let the broker decide. */
+  const tt=String(document.getElementById('gTt')?.value||'ABOVE');
+  if(tt!=='IMMEDIATE'){
+    try{
+      const q=await upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(sel.k)}`});
+      const ltp=Number(Object.values(q.data||{})[0]?.last_price)||0;
+      if(ltp>0&&Math.abs(trigger-ltp)<ltp*0.0025)
+        return ts(`Trigger ₹${trigger} is within 0.25% of LTP ₹${ltp} — Upstox requires the trigger at least ₹${(ltp*0.0025).toFixed(2)} away (use ≤ ₹${(ltp-ltp*0.0025).toFixed(2)} or ≥ ₹${(ltp+ltp*0.0025).toFixed(2)})`,'e');
+    }catch(e){/* LTP unavailable — the broker will validate */}
+  }
   /* README §8 convention: every trading action is confirm()-gated — GTT place
      was the one exception; gate it too (echoes side, qty, trigger, product). */
-  if(!confirm(`GTT ${side} ${qty} ${sel.s||sel.k} · trigger ${document.getElementById('gTt')?.value||'ABOVE'} ₹${trigger} · product ${product}${gttType==='MULTIPLE'?' · bracket TARGET+STOPLOSS':''}?`))return;
+  if(!confirm(`GTT ${side} ${qty} ${sel.s||sel.k} · trigger ${tt} ₹${trigger} · product ${product}${gttType==='MULTIPLE'?' · bracket TARGET+STOPLOSS':''}?`))return;
   if($.gttBusy)return;$.gttBusy=true;
   try{
     await upstoxFetch(END.GTT_PLACE,{method:'POST',body:{
@@ -3673,10 +3707,24 @@ async function crG(){
     ts(`GTT created (${gttType==='MULTIPLE'?`bracket ENTRY+TARGET+STOPLOSS, ${product}`:product})`,'s');proInvalidate('/order/gtt');ldG();
   }catch(e){
     /* The broker's generic GTT error ("Something went wrong… please contact
-       us") carries no cause — append the documented ones so the user can
-       self-serve instead of staring at "rejected" in the book. */
+       us", UDAPI100500) carries no cause. With trigger_type IMMEDIATE the
+       broker may have already placed — and the exchange rejected — the child
+       order; its status_message holds the REAL reason. Pull a fresh book and
+       surface that instead of guessing. */
     const m=String(e.message||''),generic=/something went wrong|please contact us|try again/i.test(m);
-    ts('GTT: '+m+(generic?'\nCommon causes: Intraday product on an option BUY (this app now uses NRML for those), trigger within 0.25% of LTP, or trigger outside the contract\'s execution range. Nothing was placed.':''),'e');
+    let hint='';
+    if(generic){
+      try{
+        const d=await upstoxFetch(END.ORDER_BOOK,{_force:true});
+        const tsOf=o=>new Date(o.order_timestamp||o.order_update_timestamp||0).getTime()||0;
+        const cand=(d.data||[]).filter(o=>String(o.instrument_token||o.instrument_key||'')===String(sel.k)
+          &&/reject/i.test(String(o.status||''))&&o.status_message&&tsOf(o)>=Date.now()-180000)
+          .sort((a,b)=>tsOf(b)-tsOf(a))[0];
+        if(cand)hint=`\nThe exchange rejected the order: "${cand.status_message}"`;
+      }catch(_e){}
+      if(!hint)hint='\nCommon causes: Intraday product on an option BUY (this app now uses NRML for those), trigger within 0.25% of LTP, trigger outside the contract\'s execution range, or the segment not supporting API GTTs (e.g. MCX commodities). Nothing was placed.';
+    }
+    ts('GTT: '+m+hint,'e');
   }
   finally{$.gttBusy=false;}
 }
