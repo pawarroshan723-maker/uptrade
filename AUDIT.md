@@ -99,7 +99,7 @@ index.html
 | S-1 | **HIGH (inherent to architecture, mitigated in code)** | **OAuth client-secret exchange runs in the browser.** `aExch()` POSTs `client_secret` directly to `https://api.upstox.com/v2/login/authorization/token`. Anyone using this path exposes the secret to the page environment (and to any future XSS). **Mitigations already present:** secret is `type="password"`, stored in `sessionStorage` only, wiped from DOM and storage immediately after exchange; the UI carries an explicit warning ("Browser apps should not hold a client secret"); the access-token paste path avoids the secret entirely. **Recommendation:** treat the token-paste path as the primary path; exchange codes on a server for any non-personal deployment. |
 | S-2 | MEDIUM | **Access token lives in `sessionStorage` (`u_tok`).** Correct choice over `localStorage` (tab-scoped, dies with the tab); migration code actively removes legacy `localStorage` copies (`u_tok`, `u_as`). Residual risk: any successful XSS can read it. No way to fully avoid in a backend-less app — acceptable for personal use. |
 | S-3 | PASS | **No hardcoded secrets.** Scanned for `client_id`/`client_secret`/API keys/passwords/keys — the app stores none; all credentials are user-supplied per session. |
-| S-4 | LOW | **No Content-Security-Policy.** Meta allows `no-referrer` + `nosniff` only. Note: a strict CSP would break the vendored protobuf.js, which compiles decoders with `new Function()` (library-standard codegen). A pragmatic CSP (`script-src 'self' 'unsafe-eval'`; `connect-src` limited to the three Upstox hosts) would still block exfiltration to unknown hosts. |
+| S-4 | LOW | **No Content-Security-Policy.** Meta allows `no-referrer` + `nosniff` only. Note: a strict CSP would break the vendored protobuf.js, which compiles decoders with `new Function()` (library-standard codegen). A pragmatic CSP (`script-src 'self' 'unsafe-eval'`; `connect-src` limited to the three Upstox hosts) would still block exfiltration to unknown hosts. **RESOLVED 2026-09-11 — see §12.** |
 | S-5 | PASS | **XSS posture is strong.** 93 `innerHTML` sinks audited: every render path that interpolates API/user data passes through `escapeHtml()` (attribute-safe: covers `& < > " '`) for markup and `jsStr()` (also escapes backtick, `<`→`\x3c`, U+2028/29) for inline handler arguments. Verified on order rows, watchlist rows, option-chain cells, depth popups, quick tabs. |
 | S-6 | PASS | **No `eval` / `new Function` in application code** (library codegen only, see S-4). |
 | S-7 | PASS | **Popup hygiene:** `window.open(url,'_blank','noopener,noreferrer')` — no opener leak, and a documented reason why blocker detection is intentionally neutral (per HTML spec `noopener` always returns `null`). |
@@ -122,7 +122,7 @@ index.html
 |---|---|---|
 | C-1 | PASS | **Order placement validation is thorough** (`plO`): positive-integer quantity, lot-size multiple, tick-size conformity for limit/trigger prices, freeze-limit detection with slice confirm, side/type echo confirm, busy-lock (`$.orderBusy`) + button disable against double-submit, `market_protection:-1` and explicit zeroing of price/trigger for MKT/SL-M. |
 | C-2 | PASS | **Token-expiry handling:** `init()` classifies auth-ish errors, clears the token and returns to login; market-WS auth failures count a 5-streak before a "token looks expired" toast; OC feed flips to "Session expired" on invalid-token. |
-| C-3 | LOW | **No explicit HTTP-401 branch in `rawUpstoxFetch`.** A mid-session REST 401 surfaces as a toast error per call, and the fast-refresh loop stops itself after 5 consecutive failures, but the user isn't force-logged-out on REST 401 the way they are on init/WS auth failures. *Suggested improvement:* detect `HTTP 401` in the fetch wrapper and trigger the existing `logout()` path with a "session expired" toast. |
+| C-3 | LOW | **No explicit HTTP-401 branch in `rawUpstoxFetch`.** A mid-session REST 401 surfaces as a toast error per call, and the fast-refresh loop stops itself after 5 consecutive failures, but the user isn't force-logged-out on REST 401 the way they are on init/WS auth failures. *Suggested improvement:* detect `HTTP 401` in the fetch wrapper and trigger the existing `logout()` path with a "session expired" toast. **RESOLVED 2026-09-11 — see §12.** The shipped handler demotes to the Analytics token first when one is staged (matching the existing WS TOKEN-SHIFT behaviour) and only logs out when no fallback exists. |
 | C-4 | ~~LOW~~ **RESOLVED 2026-09-10** | **Shadowed duplicate function definitions** (merge leftovers; JS "later declaration wins" semantics applied). **Correction on original count:** a rigorous AST scan (acorn) found **3 true top-level duplicates** — `getOCSelectedCols`, `saveOCSelectedCols`, `ocUpdateRow` (the earlier regex audit over-counted 11; the other 8 hits were *intentional* self-contained helper copies inside `instrumentWorkerSource()`, whose body is serialized into a Blob Web Worker and **must** stay duplicated). For each of the 3, the later version was verified as the intended survivor (cached column reads, versioned persistence + `pinLtp`, whitespace-equivalent delegation). **All 3 shadowed copies were removed in the post-audit cleanup (see §11); behavior verified byte-identical.** |
 | C-5 | LOW (guarded) | **One DOM id defined in 3 places** (`ocSpotRowPrice` — desktop / compact / mobile spot-row builders). Only one builder is mounted at a time and the mount path explicitly removes stale `tr.spot-row` elements ("never let duplicate #ocSpotRow rows pile up"). Fragile pattern, currently safe. |
 | C-6 | PASS | **API quota compliance:** `/v3/market-quote/option-greek` calls are chunked to ≤ 50 keys (UDAPI100043 workaround documented inline). |
@@ -191,13 +191,13 @@ Every pass-1 claim was re-checked with fresh commands:
 | Critical / High open defects | **0** | — |
 | High (architectural, mitigated) | 1 | S-1 in-browser secret exchange |
 | Medium | 1 | S-2 token in web storage |
-| Low | 2 open | S-4 no CSP · C-3 no REST-401 logout branch · (C-4 duplicate defs **resolved** §11; C-5 shared spot-row id remains, guarded) |
+| Low | **1 open** | C-5 shared spot-row id remains, guarded · (S-4 no CSP and C-3 no REST-401 branch **resolved 2026-09-11**, §12; C-4 duplicate defs **resolved** §11) |
 | Informational | 3 | R-6 fallback instrument key · payload size on mobile · missing README (now written) |
 
 ### Recommended follow-ups (priority order)
 1. **Prefer the token-paste path** in personal use; if this app is ever shared, move code→token exchange behind a tiny server proxy (removes S-1 entirely).
-2. Add a pragmatic CSP meta (`connect-src` allow-list of the 3 Upstox hosts + `'unsafe-eval'` for protobuf.js codegen).
-3. In `upstoxFetch`, detect `HTTP 401` and route to `logout()` with a "session expired" toast (matches existing WS behaviour).
+2. ~~Add a pragmatic CSP meta~~ — **DONE 2026-09-11**, see §12.
+3. ~~In `upstoxFetch`, detect `HTTP 401` and route to `logout()`~~ — **DONE 2026-09-11**, see §12 (demote-first, logout-only-when-no-fallback).
 4. ~~Delete the shadowed first copies of the duplicated functions~~ — **DONE 2026-09-10**, see §11.
 5. Re-centralize the `ocSpotRowPrice` id (e.g. class + query within the mounted row) when next touching OC spot-row code.
 
@@ -247,6 +247,90 @@ npm i jsdom && node smoke.js    # 72/74 pass; 2 harness artifacts — see §8
 **Net effect:** +39 bytes (traceability markers are longer than the removed code), 0 behavior change, and the "edit the wrong copy" trap is gone.
 
 
+
 ---
 
-*End of audit. Current file state reflects §11.*
+## 12. Post-Audit Round 2 (2026-09-11): CSP + REST 401 handling
+
+Baseline: `57892e3` (PR #1 merge), re-verified from a clean checkout before any
+edit: **69/69 green across 5 suites** (`node tests/run-all.js`).
+
+### 12.1 S-4 — pragmatic CSP shipped
+
+`<meta http-equiv="Content-Security-Policy">` now sits ahead of the first
+`<script>` so it covers every inline block:
+
+| Directive | Value | Why |
+|---|---|---|
+| `default-src` | `'self'` | baseline for anything not named below |
+| `script-src` | `'self' 'unsafe-inline' 'unsafe-eval'` | single-file app with inline blocks; `'unsafe-eval'` is required by the vendored protobuf.js decoder codegen (S-4/S-6) |
+| `style-src` | `'self' 'unsafe-inline'` | inline `<style>` + per-row computed styles |
+| `connect-src` | `'self'` + `api.upstox.com`, `api-hft.upstox.com`, `assets.upstox.com` + `wss://` Upstox feed | **the actual control** — an injected script has no channel to an unknown host |
+| `worker-src` / `child-src` | `'self' blob:` | the instrument master is parsed in a Blob Worker (`getInstrumentWorker`); without `blob:` the master silently degrades to main-thread parsing |
+| `img-src` | `'self' data: blob: https:` | news thumbnails are remote URLs; the FY chevron is an inline SVG data URI |
+| `object-src`, `base-uri`, `form-action` | `'none'` | no plugins, no `<base>`, no forms in the app |
+
+**Enforcement was verified without a browser.** No Chromium is installable in a
+CI sandbox here (only the npm registry and GitHub are reachable), so instead of
+asserting the policy only by reading it, `tests/doccheck.js` boots the app for
+2.5 s, records every URL it actually requests, and evaluates each one against
+the shipped `connect-src` with a small source matcher. All 13 distinct
+endpoints pass (`api.upstox.com` profile/positions/holdings/orders/feeds,
+`assets.upstox.com` instrument master, market status, LTP). Removing
+`assets.upstox.com` from the policy makes that assert fail and print the blocked
+URL — so the policy and the code cannot silently disagree. What this cannot
+cover: the WebSocket URL is returned by the authorize response at runtime, so
+the `wss://` allow-list is a standing assumption (Upstox returns
+`wss://api.upstox.com/...`; anything else would surface as a connect failure,
+which the feed already handles with a toast and backoff).
+
+`frame-ancestors` is deliberately **omitted**: the file is opened from `file://`
+and from local preview wrappers, and any value at all breaks both.
+
+### 12.2 C-3 — REST 401: demote first, logout only when no fallback exists
+
+The literal reading of the finding ("401 -> logout") would have *regressed* the
+token-shift feature: a dead daily token with a 1-year Analytics token staged
+must demote to read-only market data, not bounce the user to the login screen.
+So `upstoxFetch` now mirrors the TOKEN-SHIFT branch in `wsC()`:
+
+| Situation | Action |
+|---|---|
+| 401 with an Analytics token staged | **demote** — drop `$.tok`, clear `u_tok`, set `$.ro`, purge the REST cache (payloads were cached under the dead token), toast; market-data calls are then retried once on the Analytics token |
+| 401 with no fallback (daily-only session, or the Analytics token itself rejected) | **`logout()`** + "Session expired — Upstox rejected the access token. Log in again." |
+
+Three design points worth recording:
+
+1. **One classifier, three call sites.** The auth-failure regex existed twice
+   (market WS in `wsC`, OC feed) and REST would have been a third. It is now a
+   single `AUTH_FAIL_RE` + `isAuthFailure()` used by all three, so they cannot
+   drift apart. The regex itself is unchanged and was correct as written; the
+   two feed call sites now additionally pick up the guard rails in point 3
+   (the local "No access token" pre-flight and instrument-level "expired"
+   wording are no longer mistaken for a revoked session).
+2. **HTTP 401 is authoritative.** `rawUpstoxFetch` now attaches `e.status`, so a
+   hard 401 ends the session even when Upstox returns a generic body. 403 is
+   deliberately *not* expiry — it is a scope/permission error and must not log
+   a user out mid-session.
+3. **Guard rails against false positives.** Our own pre-flight "No access
+   token — log in first" is excluded (no session yet is not a revoked session).
+   Instrument errors that trip the loose `expired` arm ("the contract has
+   expired") are excluded unless a token/session word is also present. Parallel
+   401s from the polling loops are de-duped for 4s, so one expiry cannot fire
+   twenty logouts.
+
+### 12.3 Verification
+
+| Check | Result |
+|---|---|
+| `node --check` on both executable script blocks | PASS |
+| Full battery (`node tests/run-all.js`) | **83/83 green across 5 suites** (was 69/69) |
+| New CSP asserts (`tests/doccheck.js`) | 5 (10 -> 15) |
+| New 401 asserts (`tests/core.js`) | 9 (15 -> 24) |
+| Mutation: disable `restAuthShift()` | 5 new asserts fail; the 4 negative controls still pass, as they must |
+| Mutation: weaken CSP (`connect-src *`, drop `worker-src blob:`) | 2 new asserts fail |
+| Mutation: drop `assets.upstox.com` from `connect-src` | 1 new assert fails and names the blocked URL |
+
+---
+
+*End of audit. Current file state reflects §12.*

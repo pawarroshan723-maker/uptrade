@@ -6,14 +6,71 @@
  *   Static-IP group (browser can never reach): User, Payments, Orders, GTT,
  *   Portfolio, Mutual Fund, Trade Profit And Loss → daily token required.
  */
-const { boot, okpush, report } = require('./helpers');
+const fs = require('fs');
+const { boot, okpush, report, INDEX } = require('./helpers');
 const DAY = { ss: { u_tok: 'DAYTOK-1234567890abcdef' } };
 const RO = { ls: { u_atok: 'ATOKPERSIST-1234567890' } };
+
+/* ---- AUDIT-C4 (2026-09-11): CSP smoke -------------------------------------
+ * The policy is a single-file <meta> tag: it must exist exactly once, sit in
+ * <head> ahead of the first <script> (a CSP only applies to what loads after
+ * it), keep the two unsafe-* this app genuinely needs, and above all pin
+ * connect-src to the Upstox hosts so an injected script has no exfiltration
+ * channel. worker-src must keep blob: or the instrument-master Worker dies.
+ */
+const HTML = fs.readFileSync(INDEX, 'utf8');
+// The policy body is full of quoted keywords ('self', 'unsafe-eval'), so the
+// capture group must not exclude the other quote character.
+const CSP_MATCHES = HTML.match(/<meta\s+http-equiv=(["'])Content-Security-Policy\1\s+content=(["'])([\s\S]*?)\2\s*\/?>/gi) || [];
+const CSP = CSP_MATCHES.length === 1 ? CSP_MATCHES[0].match(/content=(["'])([\s\S]*?)\1/i)[2] : '';
+const DIRS = {};
+CSP.split(';').map(s => s.trim()).filter(Boolean).forEach(d => {
+  const i = d.indexOf(' ');
+  DIRS[i < 0 ? d : d.slice(0, i)] = i < 0 ? '' : d.slice(i + 1);
+});
+const src = k => DIRS[k] || '';
+/* Minimal CSP source matcher — enough to answer "would the browser let the app
+ * load this URL?" for the hosts this app actually contacts. Lets us assert the
+ * policy against the URLs the app really requests (below), instead of trusting
+ * that the allow-list and the code agree. */
+const PAGE_ORIGIN = 'https://test.example.com';
+const allowedBy = (directive, url) => {
+  let u; try { u = new URL(url, PAGE_ORIGIN); } catch { return false; }
+  return (src(directive) || '').split(/\s+/).filter(Boolean).some(s => {
+    if (s === "'self'") return u.origin === PAGE_ORIGIN;
+    if (s === '*' || s === 'https:' || s === 'wss:') return true;
+    if (/^(blob|data):$/.test(s)) return u.protocol === s;
+    const m = s.match(/^([a-z]+):\/\/(\*\.)?([^/]+)$/i);
+    if (!m) return false;
+    if (u.protocol !== m[1] + ':') return false;
+    return m[2] ? u.hostname === m[3] || u.hostname.endsWith('.' + m[3]) : u.hostname === m[3];
+  });
+};
 
 const attempt = (w, expr) => w.eval(`(async()=>{ try{ await ${expr}; return 'ALLOWED'; }catch(e){ return 'REJECTED: '+e.message; } })()`);
 
 (async () => {
   const R = []; const ok = okpush(R);
+
+  // -- CSP (AUDIT-C4): one policy, declared before any script runs
+  ok('CSP: exactly one Content-Security-Policy meta, ahead of the first <script>',
+    CSP_MATCHES.length === 1 && HTML.indexOf(CSP_MATCHES[0]) < HTML.indexOf('<script'));
+
+  // -- CSP: connect-src is the real control — Upstox hosts only, no wildcard
+  ok('CSP: connect-src pins api/api-hft/assets + wss feed, no wildcard',
+    ['https://api.upstox.com', 'https://api-hft.upstox.com', 'https://assets.upstox.com']
+      .every(h => src('connect-src').includes(h))
+    && /wss:\/\/[a-z0-9.*-]*\.?upstox\.com/.test(src('connect-src'))
+    && !/(^|\s)\*(\s|$)/.test(src('connect-src')));
+
+  // -- CSP: the two unsafe-* this app needs, plus the hardening directives
+  ok('CSP: script-src keeps unsafe-eval (protobuf codegen) + unsafe-inline; object-src/base-uri none',
+    src('script-src').includes("'unsafe-eval'") && src('script-src').includes("'unsafe-inline'")
+    && src('object-src') === "'none'" && src('base-uri') === "'none'");
+
+  // -- CSP: the instrument master parses in a blob: Worker — don't break it
+  ok('CSP: worker-src allows blob: (instrument-master Worker) and default-src is self, not *',
+    /blob:/.test(src('worker-src')) && src('default-src') === "'self'");
 
   let { w, calls } = await boot({ tokens: RO, settle: 800 });
   const F = ep => `upstoxFetch({base:API_BASE,path:'${ep}'},{_force:true})`;
@@ -47,6 +104,13 @@ const attempt = (w, expr) => w.eval(`(async()=>{ try{ await ${expr}; return 'ALL
   await w.eval(`apiHist('https://api.upstox.com/v3/historical-candle/NSE_EQ%7CINE002A01018/day/2026-09-01/2026-09-10')`).catch(() => {});
   await new Promise(r => setTimeout(r, 400));
   ok('apiHist uses daily bearer when daily present', calls.slice(b).some(c => c.u.includes('/v3/historical-candle') && c.auth === 'Bearer DAYTOK-1234567890abcdef'));
+
+  // -- CSP: the policy must not block any URL the app actually requests
+  ({ w, calls } = await boot({ tokens: DAY, settle: 2500 }));
+  const urls = [...new Set(calls.map(c => c.u))];
+  ok(`CSP: all ${urls.length} URLs requested at runtime pass connect-src`,
+    (urls.length >= 8 && urls.every(u => allowedBy('connect-src', u)))
+      || 'blocked by policy: ' + urls.filter(u => !allowedBy('connect-src', u)).join(', '));
 
   process.exit(report('DOC-COMPLIANCE TESTS', R) ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });
