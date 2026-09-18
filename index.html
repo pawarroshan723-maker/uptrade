@@ -1354,8 +1354,9 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
 #orderTicket select.fi{padding:4px 4px 4px 8px}
 #orderTicket .ot-side .mini-toggle{margin:0;height:30px}
 #orderTicket .ot-side .tb{font-size:12px;font-weight:800;letter-spacing:.6px;padding-block:4px}
-#orderTicket .ot-hint{flex:1 1 100%;margin:0}
-#orderTicket .ticket-hint{font-size:10.5px;padding:5px 8px}
+/* F&O hint chip — lives in the quick-head, right of the "Order ticket"
+   title (single line, ellipsized; full text on hover via title attr) */
+#orderTicket .qh-fohint{flex:1 1 auto;min-width:0;margin:0 8px;padding:2px 8px;font-size:10px;color:var(--yl);background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.25);border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #orderTicket .muted-note,#orderTicket .margin-results{font-size:10.5px}
 #orderTicket .ot-footer{display:flex;gap:8px;align-items:center;flex-wrap:nowrap;border-top:1px solid var(--bd);padding-top:9px;margin-top:1px}
 #orderTicket .ot-estimate{flex:1 1 0;min-width:0}
@@ -1367,7 +1368,7 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
 #orderTicket .margin-sum{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11px;color:var(--t2);line-height:1.35}
 #orderTicket .margin-sum b{font-size:12.5px;font-weight:800;color:var(--t1);font-variant-numeric:tabular-nums}
 #orderTicket .margin-sum-funds{font-size:10.5px;font-weight:700}
-#orderTicket .margin-detail-btn{margin-left:auto;flex:0 0 auto;background:transparent;border:1px solid var(--bd);color:var(--t2);font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;cursor:pointer;white-space:nowrap;transition:.15s}
+#orderTicket .margin-detail-btn{flex:0 0 auto;background:transparent;border:1px solid var(--bd);color:var(--t2);font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;cursor:pointer;white-space:nowrap;transition:.15s}
 #orderTicket .margin-detail-btn:hover{color:var(--t1);border-color:var(--t3);background:var(--b4)}
 #orderTicket .margin-detail{margin-top:8px}
 #orderTicket .margin-detail[hidden]{display:none}
@@ -1470,7 +1471,7 @@ body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
     <div class="page-actions"><button type="button" class="btn bp" id="orderTicketBtn" onclick="toggleQuickPanel('orderTicket',this)">＋ New order</button><button type="button" class="icon-btn" onclick="ldO()" title="Refresh">↻</button></div>
   </div>
   <section class="quick-drawer cd" id="orderTicket" hidden>
-    <div class="quick-head"><span>Order ticket</span><button type="button" class="mcl" onclick="toggleQuickPanel('orderTicket',document.getElementById('orderTicketBtn'),false)">✕</button></div>
+    <div class="quick-head"><span>Order ticket</span><span class="qh-fohint" id="oDerivHint" style="display:none" title="F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled.">ℹ️ F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled.</span><button type="button" class="mcl" onclick="toggleQuickPanel('orderTicket',document.getElementById('orderTicketBtn'),false)">✕</button></div>
     <div class="order-form-v2">
       <div class="ot-row ot-line">
         <div class="fgrp ot-inst"><label>Instrument</label><div class="dd" id="dO1"><input class="fi" id="oI" placeholder="Search instrument…" autocomplete="off"><div class="ddl" id="dO1_L"></div></div></div>
@@ -1483,7 +1484,6 @@ body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
         <div class="fgrp"><label>Validity</label><select class="fi" id="oVl" onchange="otAuto()"><option value="DAY">DAY</option><option value="IOC">IOC</option></select></div>
         <div class="fgrp ot-amo"><label>AMO</label><select class="fi" id="oAm" onchange="otAuto()"><option value="false">No</option><option value="true">Yes</option></select></div>
       </div>
-      <div class="fgrp ot-hint" id="oDerivHint" style="display:none"><span class="ticket-hint">ℹ️ F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled.</span></div>
       <div class="ot-footer">
         <div class="ot-estimate margin-results" id="oMarginR"><span class="muted-note">Auto margin &amp; charges — fills in as you complete the ticket. Nothing is placed.</span></div>
         <div class="ot-actions">
