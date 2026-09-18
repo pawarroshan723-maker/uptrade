@@ -1482,7 +1482,7 @@ body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
         <div class="fgrp" id="oTG" style="display:none"><label>Trigger</label><input type="number" class="fi" id="oTr" step="0.05" oninput="otAuto()"></div>
         <div class="fgrp"><label>Product</label><select class="fi" id="oPr" onchange="otAuto()"><option value="D">Delivery</option><option value="I">Intraday</option><option value="MTF">MTF</option></select></div>
         <div class="fgrp"><label>Validity</label><select class="fi" id="oVl" onchange="otAuto()"><option value="DAY">DAY</option><option value="IOC">IOC</option></select></div>
-        <div class="fgrp ot-amo"><label>AMO</label><select class="fi" id="oAm" onchange="otAuto()" title="After Market Order — required for live placement outside the instrument's session (NSE/BSE Mon–Fri 09:15–15:30, currency 09:00–17:00, MCX 09:00–~23:30). Rejected during market hours (UDAPI100039). The order API itself is open 05:30–24:00 IST (UDAPI100074). Auto-set from the market clock on instrument pick; the place button re-checks it."><option value="false">No</option><option value="true">Yes</option></select></div>
+        <div class="fgrp ot-amo"><label>AMO</label><select class="fi" id="oAm" onchange="otAuto()" title="After Market Order — required for placement outside the instrument's session (NSE/BSE Mon–Fri 09:15–15:30, currency 09:00–17:00, MCX 09:00–~23:30). During market hours the broker auto-treats orders as live (is_amo inferred; UDAPI100039 also documented) — the app sends live there. The order API itself is open 05:30–24:00 IST (UDAPI100074). Auto-set from the market clock on instrument pick; the place button re-checks it."><option value="false">No</option><option value="true">Yes</option></select></div>
       </div>
       <div class="ot-footer">
         <div class="ot-estimate margin-results" id="oMarginR"><span class="muted-note">Auto margin &amp; charges — fills in as you complete the ticket. Nothing is placed.</span></div>
@@ -2440,8 +2440,12 @@ function chooseInstrumentMasterFile(){
 /* ============ Market clock (IST) — after-hours order handling (2026-09-18) ============
    Upstox v3 Place Order docs: the API accepts orders 05:30–24:00 IST (UDAPI100074
    outside that); LIVE orders only inside the instrument's exchange session; outside
-   the session an order must be AMO (is_amo=true), and AMO is REJECTED during market
-   hours (UDAPI100039). Sessions differ by segment — MCX non-agri (crude, metals,
+   the session an order must be AMO (is_amo=true). CAVEAT (verified 2026-09-18):
+   the same page both says is_amo is AUTO-INFERRED ("Automatic AMO detection" —
+   is_amo:true in market hours is processed as live) AND lists UDAPI100039 "AMO
+   orders cannot be placed during the market hours" in its error table. The app never
+   sends is_amo:true inside a session (auto-sync + confirm flip it to false) and
+   always sends true outside it — correct under BOTH readings. Sessions differ by segment — MCX non-agri (crude, metals,
    energy) runs 09:00–23:30 IST (till ~23:55 while US DST is off), currency (CDS)
    09:00–17:00, NSE/BSE equity & F&O 09:15–15:30, all Mon–Fri. Exchange holidays are
    not knowable client-side — the broker stays the final arbiter and its rejection
@@ -3493,7 +3497,11 @@ async function plO(){
       const am=document.getElementById('oAm');if(am)am.value='true';
     }
   }else if(amoOn()){
-    if(!confirm('Market is OPEN — AMO is rejected during market hours (UDAPI100039). Place as a live order instead?'))return;
+    /* Docs are self-contradictory here: the "Automatic AMO detection" callout says
+       is_amo:true is auto-inferred to live in market hours, while the error table
+       lists UDAPI100039 (AMO rejected during market hours). Send live — the one
+       variant that is correct under both readings. */
+    if(!confirm('Market is OPEN — AMO applies only outside market hours (docs: auto-treated as live, or rejected with UDAPI100039). Place as a live order instead?'))return;
     const am=document.getElementById('oAm');if(am)am.value='false';
   }
   if(!confirm(`${side} ${qty} ${sel.s||sel.k} · ${orderType}${orderType==='MARKET'||orderType==='SL-M'?'':` @ ${price}`}${['SL','SL-M'].includes(orderType)?` trigger ${trigger}`:''}${amoOn()?' · AMO (next session)':''}?`))return;
