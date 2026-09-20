@@ -109,6 +109,8 @@ Response:
   "metadata": { "latency": 30 } }
 ```
 Doc notes the app already honors: `market_protection: -1` default (auto), `slice` auto-slicing on freeze breach, `is_amo` **auto-overridden** during market hours, optional `X-Algo-Name` header for exchange-approved algos.
+**Quantity semantics (official request-body doc, verified 2026-09-18):** *"For commodity - number of lots is accepted. For other Futures & Options and equities - number of units is accepted"* — the basis of the MCX-LOTS ticket behavior (README §3.8/§3.9) and of the app's **QTY ↔ LOTS switch** (README §3.11): the ticket converts the entered basis to this exact broker quantity via `qtyParts()` for place, GTT and margin estimate.
+**AMO / after-hours (verified 2026-09-18, README §3.9):** the docs say *"If you intend to place an order outside of market hours, the 'is_amo' should be set to 'true'"*; error table pins the edges — **UDAPI100039** AMO rejected during market hours, **UDAPI100074** the place API itself is open only **05:30–24:00 IST**. ⚠️ **The same page is self-contradictory on is_amo during market hours**: the "Automatic AMO detection" callout says the flag "will be ignored, and the system will automatically infer its value based on the current market session" (is_amo:true in market hours → processed as live), while the error table keeps UDAPI100039 ("AMO orders cannot be placed during the market hours"). App strategy — never send is_amo:true inside a session (auto-sync + confirm flip to false) and always true outside it: correct under both readings. Sessions are segment-aware: NSE/BSE 09:15–15:30, CDS 09:00–17:00, MCX non-agri 09:00–~23:30 (≈23:55 while US DST is off). **UDAPI1161** exists for MCX-via-API being temporarily disabled broker-side — surfaced verbatim if ever hit. GTT place has **no** timing restriction (broker-side trigger; child order only on trigger — IMMEDIATE sends it at once).
 
 ### 4.2 GTT V3 (place) — `POST /v3/order/gtt/place`
 ```json
@@ -118,7 +120,8 @@ Doc notes the app already honors: `market_protection: -1` default (auto), `slice
   "instrument_token": "NSE_EQ|INE669E01016", "transaction_type": "BUY" }
 ```
 Response: `{ "status":"success", "data":{ "gtt_order_ids":["GTT-CU25280200021013"] }, "metadata":{ "latency":88 } }`
-**Multi-leg:** `type:"MULTIPLE"` with `rules[]` = `ENTRY` + `TARGET` + `STOPLOSS` (TARGET/STOPLOSS trigger_type must be `IMMEDIATE`); **Trailing SL (beta):** add `trailing_gap` on the STOPLOSS leg (min gap = 10 % of |LTP − trigger|).
+**Multi-leg:** `type:"MULTIPLE"` with `rules[]` = `ENTRY` + `TARGET` + `STOPLOSS` (TARGET/STOPLOSS trigger_type must be `IMMEDIATE`); **Trailing SL (beta):** add `trailing_gap` on the STOPLOSS leg (min gap = 10 % of |LTP − SL trigger| — pre-checked client-side since 2026-09-18).
+**Conformance audit (2026-09-18, README §3.10):** verified against the request-body table — ENTRY mandatory; TARGET/STOPLOSS IMMEDIATE-only; `market_protection` optional on all three legs, default −1 (0 = MARKET-order rejection from API — never sent); TARGET/STOPLOSS sides are broker-implied opposite of the ENTRY's `transaction_type`; IMMEDIATE = child LIMIT sent at once (day-valid; SL/Target 365d after primary fills). **Bug found & fixed:** `rules[2]=…` on `[ENTRY]` serialized a sparse hole as `null` → `[ENTRY,TARGET,null,STOPLOSS]`; legs now built densely.
 
 ### 4.3 Margin — `POST /v2/charges/margin`
 Request: `{ "instruments":[{ "instrument_key":"NSE_EQ|INE669E01016", "quantity":1, "transaction_type":"BUY", "product":"D" }] }` (max 20, no duplicate keys)

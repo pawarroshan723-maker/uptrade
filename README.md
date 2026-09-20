@@ -70,6 +70,89 @@ The login card offers:
 
 ---
 
+## 3.6 Order ticket v2 + auto margin estimate (added 2026-09-18)
+
+- **Rebuilt ticket layout (single line)** — the old cramped form is now **one horizontal line**: **Instrument · BUY/SELL · Quantity · Type · Price · Trigger · Product · Validity · AMO** (price/trigger self-hide for MARKET; the line wraps only when the viewport truly can't fit it — phones get a 2-column grid). Footer bar on one line: **estimate summary · ↻ re-estimate · PLACE BUY/SELL**. Value-first sizing: **13px semi-bold field text in 30px-high boxes**, 10.5px labels. The **F&O product hint sits in the ticket header**, right of the "Order ticket" title (single ellipsized line, full text on hover), instead of eating a form row; the **Details ⌄ button sits directly after the summary text**, with ↻ Estimate + PLACE pinned to the far right.
+- **Estimate results merged into one compact line** — instead of two cards, the summary shows just `Charges ₹X + Required margin ₹Y · ✓ Covered — ₹Z available` (or `✗ Shortfall ₹X — ₹Z available`); the full breakup (SPAN/exposure components, per-charge rows, per-share breakeven, DP plan, ticket echo) expands behind a **Details ⌄** toggle that survives re-estimates (`estMarginToggleDetail`).
+- **🧮 Margin & charges now auto-fetch** — every ticket edit (qty/price/trigger typing, type/product/validity/AMO change, side toggle, instrument pick, panel open) re-runs the estimator after a 700 ms debounce (`otAuto()` → `estMargin({auto:true})`). Auto mode is **silent**: an incomplete ticket (wrong lot multiple, off-tick price) parks a muted note in the results box instead of toasting, a failed fetch shows the inline error, and in-flight estimates are retried so the last edit always wins. The ↻ button keeps the explicit, toasting behaviour. Still pre-trade only — nothing is placed.
+- `setS()` now preserves the place-button styling class and re-arms the auto estimate.
+
+---
+
+## 3.7 GTT product fix + order guards (added 2026-09-18)
+
+A BUY GTT on an MCX crude-oil CE (`CRUDEOIL26OCT10000CE`) went out with **product `I` (MIS)** and the triggered child order was **rejected at exchange validation** with only Upstox's generic *"Something went wrong… please contact us"*. Upstox's GTT policy allows intraday *and* delivery GTTs, but **Intraday (MIS) is not allowed for buying options** — the same rule the order ticket's F&O hint documents.
+
+- **GTT product is now side-aware** (`crG`): option **BUY → `D` (NRML)**; option sells and futures keep `I`; equity stays `D`. The GTT ticket header carries an "NSE/BSE · Option BUY → NRML" hint chip.
+- **GTT picker leak fixed**: `instrumentAllowed()` never enforced `INSTRUMENT_CONTEXTS.exchanges`, so MCX instruments (segment `MCX_FO`, grouped as `FO`) leaked into the NSE/BSE-only GTT picker — that's how the crude-oil CE GTT reached the broker. The exchange allow-list is honored now (missing `x` stays permissive; the order ticket still accepts MCX for regular orders).
+- **MCX GTTs get an explicit risk-confirm** — the broker API rejected a crude-oil CE GTT with its generic `UDAPI100500` error *even on the correct NRML product*; the Upstox app may still accept them.
+- **0.25% trigger-distance pre-check** (documented GTT rule): for ABOVE/BELOW entries the live LTP is fetched and a trigger within 0.25% of it is blocked with the exact allowed band before the request (IMMEDIATE entries are exempt).
+- **Generic GTT failures are now diagnosed**: when the broker answers "Something went wrong… please contact us", the app pulls a fresh order book, finds a just-rejected child order for the same instrument, and surfaces its real `status_message` — plus the broker error code (e.g. `(UDAPI100500)`) is now appended to every API error.
+- **GTT place is confirm()-gated** (echoes side, qty, trigger, product) — it was the only trading action without a confirm.
+- **Order ticket guard**: a BUY on any option with Product = Intraday is blocked client-side with a clear message instead of eating the exchange rejection.
+- **Order history (View) now shows the broker's `status_message`** — the actual rejection reason (e.g. *"63 : Intraday product is not allowed for buying options"*) under the status line, in red.
+
+---
+
+## 3.8 MCX quantity is LOTS + GTT trigger sanity (added 2026-09-18, later same day)
+
+The rejection-reason surfacing (§3.7) exposed the real causes of the day's failures:
+
+- **MCX quantity semantics confirmed live**: a Q:100 BUY of the 100-lot `CRUDEOIL…9000CE` @ ₹584 was rejected with `RMS:Margin Exceeds, Required:5840000.00` — i.e. the broker billed **100 lots × 100 barrels**, not 1 lot. On Upstox v3, **MCX quantity is counted in LOTS** (NSE/BSE/CDS stay in units). The app now:
+  - resets an MCX pick's ticket quantity to **1 lot** (step 1) instead of auto-filling the lot size in units — order ticket *and* GTT ticket;
+  - skips the lot-multiple validation for MCX (a single lot is valid there) in `plO`, `crG` and the margin estimator;
+  - echoes the conversion in the MCX confirm: *"1 lot = 100 units of CRUDEOIL…"*;
+  - notes "MCX quantity is in LOTS" in the ticket header hint.
+- **GTT far-trigger guard**: a NIFTY-CE GTT still failed with the generic `UDAPI100500` — no rejected child order, so the trigger itself was refused (an index-style price against an option premium). For ABOVE/BELOW entries the app now shows the **instrument's LTP in the confirm** and demands an extra explicit confirm when the trigger is **≥3× or ≤⅓ of LTP** ("GTT triggers track THIS instrument's price — for an option that's the premium, NOT the index or future").
+- Note: the RMS line also showed `Available:0.00` — even a correct 1-lot order needs free funds; the auto margin estimate's coverage line (`✗ Shortfall`) shows that before you place.
+
+---
+
+## 3.9 After-market orders + visible quantity auto-fill (added 2026-09-18, evening)
+
+Two live reports: *"Orders quantity not auto fill"* and *"check after market allows GTT and normal order"*.
+
+**Quantity auto-fill — now unmissable.** The fill was already deterministic, but a **1-LOT MCX fill is indistinguishable from the untouched default `1`**, and a same-lot carry-over looked like nothing happened. The Upstox place-order docs also state it verbatim: *"For commodity - number of lots is accepted. For other Futures & Options and equities - number of units"* — official confirmation of §3.8. Now, on **every instrument change**:
+
+- the quantity resets to that instrument's basis — **1 (MCX lot)** or **the lot size (NSE/BSE/CDS units)** — re-picking the *same* instrument keeps a valid quantity;
+- an **info toast announces the fill** ("Quantity auto-filled: 1 LOT = 100 units of … (MCX counts lots)" / "Quantity auto-filled: 75 (1 lot of …)");
+- the field **label carries the basis** — `Qty (LOTS)` vs `Qty (lot 75)` vs `Quantity` — and the input's tooltip explains units vs lots.
+
+**After-market — segment-aware market clock.** `istClock()`/`marketPhase()` compute the IST session for the ticket's instrument: **NSE/BSE equity & F&O 09:15–15:30 · currency (CDS) 09:00–17:00 · MCX 09:00–~23:30 (≈23:55 while US DST is off)**, Mon–Fri. Exchange holidays aren't knowable client-side — the broker stays the final arbiter and its rejection reasons surface via the §3.7 passthrough. Then:
+
+- **Normal orders**: a live order is only valid inside the session. Outside it the broker requires **AMO** (`is_amo: true`) — the ticket **auto-sets AMO to Yes on instrument pick and panel open** (silently; the field shows the flip), and `plO()` re-checks at place time: after hours with AMO off you get *"Market is closed… Place as AMO?"* — declining sends **nothing**; accepting flips the flag and tags the confirm + success toast with `AMO — queued for the next session`. The reverse is guarded too: the docs are **self-contradictory** on AMO during market hours — the page's *"Automatic AMO detection"* callout says `is_amo` is ignored and auto-inferred (a `true` in market hours is processed as live), yet the same page's error table lists **`UDAPI100039`** ("AMO orders cannot be placed during the market hours"). The app never sends `is_amo: true` inside a session (the AMO select auto-syncs to No; a manual Yes triggers a confirm that flips it) — the one behavior that is correct under **both** readings. The order API itself is closed 00:00–05:30 IST (`UDAPI100074`) — blocked up front with that reason.
+- **MCX evening session**: crude/gold/etc. trade until ~23:30 IST, so an 18:10 crude ticket is **LIVE — no AMO is forced** (this is exactly the live retry scenario).
+- **GTT after hours: allowed.** GTT placement is broker-side (no exchange order until the trigger fires), so it works off-hours — the confirm now says *"after hours: stored now, armed during market hours"*. Caveat spelled out too: **IMMEDIATE** entries send the child LIMIT order to the exchange straight away, which off-hours can be rejected — ABOVE/BELOW only arm the trigger.
+
+---
+
+## 3.10 GTT doc-conformance audit (added 2026-09-18, evening)
+
+A line-by-line check of `crG()` against the official place-GTT request-body docs surfaced one **live bug** and one missing guard:
+
+- **Bracket GTTs sent a `null` rule (fixed)**: the STOPLOSS leg was written with `rules[2] = …` on the 1-element `[ENTRY]` array — that leaves a *sparse hole* at index 1, and the subsequent `splice(1, 0, TARGET)` filled the hole while the array still serialized as **`[ENTRY, TARGET, null, STOPLOSS]`**. A `null` rule is a guaranteed broker rejection (most likely the generic `UDAPI100500`). The legs are now built densely — `ENTRY, TARGET, STOPLOSS` — and a test asserts the serialized array contains no holes/nulls.
+- **Trailing-gap floor pre-checked (doc rule)**: *"the minimum value for trailing gap is 10% of difference between LTP and stop loss trigger price"*. The field label said so, but `crG()` never enforced it — now, when a live LTP is available, a gap below `10% × |LTP − SL|` is blocked with the computed minimum (₹-exact) instead of eating the rejection. The LTP is fetched for this check even when the ENTRY type is IMMEDIATE (the floor applies to the STOPLOSS leg regardless).
+- **Verified conforming (no change needed)**: `ENTRY` rule always present; TARGET/STOPLOSS legs are `IMMEDIATE`-only; `market_protection: -1` (the automatic default, never `0`) on every leg; `trailing_gap` only ever rides the STOPLOSS leg; bracket sides follow the docs (ENTRY BUY → TARGET/STOPLOSS are the opposite side; BUY: target above entry, SL below); `type` is `SINGLE` vs `MULTIPLE` exactly per legs; IMMEDIATE sends the child LIMIT order immediately (valid for the day; SL/Target legs valid 365 days after the primary fills) — already covered by the after-hours confirm note.
+
+---
+
+## 3.11 QTY ↔ LOTS switch (added 2026-09-18, night)
+
+*"1 QTY = lots — add switch button qty and lots."* The broker quantity is **units on NSE/BSE/CDS but lots on MCX** (doc-verified), yet traders think in lots on every segment. The quantity field's label is now a two-button switch — in the **order ticket and the GTT form**:
+
+- **QTY** — the number is the **broker quantity** (units on NSE/BSE/CDS, lots on MCX): exactly what v3 receives. Native default for non-MCX picks; also the fallback for a directly-typed ticket on a fresh form.
+- **LOTS** — the number is **lots on any segment**; place / estimate / GTT convert it automatically (NSE/BSE/CDS: ×lot → units; MCX: passed through — its broker quantity *is* lots). Native default for MCX picks (1 QTY = 1 lot there, unambiguous).
+
+Details:
+
+- **Switching converts the number in place** — 150 units ↔ 2 lots; a non-divisible value snaps to 1 lot. The choice is **sticky** (`$.qtyPref`) for future non-MCX picks; **MCX always starts on LOTS**. A preference flip on a same-instrument re-pick converts the field too (its meaning changed — never silently).
+- **Confirm dialogs echo the conversion both ways**: `BUY 2 lots (= 150 units) NIFTY…`, `1 lot (= 100 units)` on MCX; the place request always carries the converted broker quantity (`quantity: 150` for 2 NIFTY lots, `quantity: 1` for 100 crude units).
+- **Validation is basis-aware**: whole lots in LOTS mode; unit multiples of the lot in QTY mode (MCX QTY mode = commodity units — `MCX quantity (units) must be a multiple of lot size 100`).
+- **Auto-fill and the margin estimator follow the active basis** (the fill toast says `1 lot (= 75 units of …)` in LOTS mode; the estimator estimates on the converted broker quantity).
+- Shared conversion: `qtyParts(form)` — single source of truth for `plO`, `crG` and `estMargin`.
+
+---
+
 ## 4. How `index.html` is organized
 
 Read it top-to-bottom in five layers:
@@ -237,8 +320,10 @@ node tests/run-all.js  # -> ALL SUITES GREEN
 | `pltest.js` | 22 | P&L metadata / data / charges, paging, error surfacing |
 | `doccheck.js` | 15 | analytics-token allow-list vs the official doc + CSP policy |
 | `core.js` | 24 | boot, token shift, navigation, trading guards, REST 401 demote-vs-logout |
+| `ottest.js` | 23 | order ticket v2 structure, auto-margin debounce/silent notes, manual-estimate toasts, no-token & closed-panel guards |
+| `gtttest.js` | 58 | GTT side-aware product (option BUY → NRML), picker exchange allow-list, MCX risk-confirm, 0.25% trigger pre-check, far-trigger guard, generic-failure diagnosis + error codes, MIS option-buy guard, MCX lots semantics, rejection reasons in history, instrumentIsOption, segment-aware market clock (NSE/CDS/MCX sessions), after-hours AMO gate (UDAPI100039/100074), MCX evening session stays live, GTT after-hours note, quantity auto-fill announced + reset on instrument change, trailing-gap 10% floor, dense bracket rules (no null hole) + doc shapes, QTY↔LOTS switch (conversion, broker-quantity on place/GTT, MCX units basis, sticky preference) |
 
-**83/83 green** as of 2026-09-11. `tests/helpers.js` boots the real `index.html`
+**164/164 green** as of 2026-09-18. `tests/helpers.js` boots the real `index.html`
 in jsdom with stubbed `fetch` / `WebSocket` / `IndexedDB`, so every suite
 exercises the shipped file rather than a copy of its logic.
 

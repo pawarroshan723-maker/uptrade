@@ -236,8 +236,10 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .quick-head,.list-toolbar{min-height:35px;padding:6px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--bd);font-size:10px;font-weight:650}
 .compact-form-grid{display:grid;grid-template-columns:repeat(6,minmax(90px,1fr));gap:7px;padding:9px 10px;align-items:end}.compact-form-grid .fgrp{margin:0}.compact-form-grid .span-2{grid-column:span 2}.compact-form-grid .fi{height:30px;padding:6px 8px}.compact-form-grid .form-action .btn{width:100%;height:30px;justify-content:center}.mini-toggle{height:30px;margin:0}.mini-toggle .tb{padding:4px 6px}
 .order-form-grid{grid-template-columns:minmax(190px,1.8fr) minmax(120px,1fr) repeat(8,minmax(78px,.72fr))}.order-form-grid .span-2{grid-column:span 1}.order-form-grid #oDerivHint{grid-column:1/-1}.ticket-hint{font-size:10px;color:var(--yl);background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.25);border-radius:6px;padding:6px 9px;display:inline-block;line-height:1.4}
-/* Pre-trade margin & charges estimator (order ticket) */
-.order-form-grid #oMarginRow{grid-column:1/-1;border-top:1px solid var(--bd);padding-top:8px;margin-top:2px;display:flex;gap:10px;align-items:flex-start}
+/* Pre-trade margin & charges estimator (order ticket).
+   The old #oMarginRow strip was replaced by the .ot-footer bar in the
+   #order-ticket-v2 style pack; the card/row/note styles below are still
+   used by the #oMarginR results box. */
 #oMarginBtn{white-space:nowrap;flex-shrink:0}
 .margin-results{flex:1;min-width:0;font-size:10px;color:var(--t2)}
 .margin-head{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin-bottom:6px}
@@ -251,7 +253,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .margin-note{font-size:10px;color:var(--t3);margin-top:4px}
 .margin-err{font-size:10px;color:var(--rd)}
 .margin-loading{display:flex;align-items:center;gap:6px;color:var(--t3)}
-@media(max-width:700px){.order-form-grid #oMarginRow{flex-direction:column}}.gtt-form-grid{grid-template-columns:minmax(210px,2fr) repeat(5,minmax(105px,1fr))}.gtt-form-grid .span-2{grid-column:span 1}.algo-form-grid{grid-template-columns:minmax(240px,2fr) minmax(130px,1fr) minmax(130px,.8fr);max-width:760px}.pnl-form-grid{grid-template-columns:minmax(130px,1fr) minmax(150px,1fr) minmax(120px,.7fr);max-width:580px}
+.gtt-form-grid{grid-template-columns:minmax(210px,2fr) repeat(5,minmax(105px,1fr))}.gtt-form-grid .span-2{grid-column:span 1}.algo-form-grid{grid-template-columns:minmax(240px,2fr) minmax(130px,1fr) minmax(130px,.8fr);max-width:760px}.pnl-form-grid{grid-template-columns:minmax(130px,1fr) minmax(150px,1fr) minmax(120px,.7fr);max-width:580px}
 .data-panel{min-height:calc(100vh - 128px);display:flex;flex-direction:column}.quick-drawer:not([hidden])+.data-panel{min-height:calc(100vh - 235px)}.table-pad{padding:0;flex:1;min-height:0}.data-viewport{height:100%;max-height:calc(100vh - 175px);overflow:auto;margin:0}.quick-drawer:not([hidden])+.data-panel .data-viewport{max-height:calc(100vh - 285px)}
 .data-panel .dt th{top:0;z-index:2}.data-panel .dt td,.data-panel .dt th{padding:8px 10px}.compact-tabs{border:0;margin:0}.compact-tabs .tab{padding:7px 13px;border-radius:14px;border:1px solid transparent;margin-right:3px}.compact-tabs .tab.on{background:rgba(124,58,237,.18);border-color:rgba(124,58,237,.35)}
 .metric-strip+.data-panel{min-height:calc(100vh - 185px)}
@@ -1327,6 +1329,68 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
   #ocTable.mobile-chain .moc-grid>.moc-metric:last-child:nth-child(even){grid-column:1/-1!important;width:100%!important}
 }
 </style>
+<style id="order-ticket-v2">
+/* =====================================================================
+   ORDER TICKET v2 (2026-09-18, single-line rev 3) + AUTO margin estimate.
+   ONE horizontal line: instrument · side · qty · type · price · trigger
+   · product · validity · AMO (price/trigger self-hide; wraps only when
+   the viewport truly can't fit them). Footer bar stays one line:
+   estimate summary | ↻ re-estimate | PLACE.
+   Estimate box = ONE compact line (charges + required margin + coverage)
+   with the full breakup behind a Details toggle (estMarginToggleDetail).
+   Density: 13px semi-bold values in 30px boxes, 10.5px labels.
+   Scoped to #orderTicket and appended after every other style pack, so
+   it wins the cascade without touching the shared form-grid classes.
+   ===================================================================== */
+#orderTicket .order-form-v2{display:flex;flex-direction:column;gap:8px;padding:10px 12px 12px}
+#orderTicket .ot-row{display:flex;gap:7px;align-items:flex-end;flex-wrap:wrap}
+#orderTicket .ot-row .fgrp{flex:1 1 84px;min-width:0;margin:0}
+#orderTicket .ot-line .ot-inst{flex:2.2 1 170px}
+#orderTicket .ot-line .ot-side{flex:0 0 118px}
+#orderTicket .ot-line .ot-qty{flex:0 1 78px}
+#orderTicket .ot-line .ot-amo{flex:0 1 76px}
+#orderTicket .fgrp label{font-size:10.5px!important;margin-bottom:2px;letter-spacing:.2px}
+#orderTicket .fi{font-size:13px;font-weight:600;min-height:30px;height:30px;padding:4px 8px}
+#orderTicket select.fi{padding:4px 4px 4px 8px}
+#orderTicket .ot-side .mini-toggle{margin:0;height:30px}
+#orderTicket .ot-side .tb{font-size:12px;font-weight:800;letter-spacing:.6px;padding-block:4px}
+/* F&O hint chip — lives in the quick-head, right of the "Order ticket"
+   title (single line, ellipsized; full text on hover via title attr) */
+#orderTicket .qh-fohint,#gttTicket .qh-fohint{flex:1 1 auto;min-width:0;margin:0 8px;padding:2px 8px;font-size:10px;color:var(--yl);background:rgba(234,179,8,.08);border:1px solid rgba(234,179,8,.25);border-radius:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#orderTicket .muted-note,#orderTicket .margin-results{font-size:10.5px}
+#orderTicket .ot-footer{display:flex;gap:8px;align-items:center;flex-wrap:nowrap;border-top:1px solid var(--bd);padding-top:9px;margin-top:1px}
+#orderTicket .ot-estimate{flex:1 1 0;min-width:0}
+#orderTicket .ot-actions{display:flex;gap:6px;flex:0 0 auto;margin-left:auto}
+#orderTicket .ot-actions .btn{flex:1 1 auto;white-space:nowrap;min-height:34px}
+#orderTicket .ot-place{min-width:150px;font-size:12px;font-weight:800;letter-spacing:.4px;justify-content:center}
+/* QTY ↔ LOTS switch (order ticket + GTT form) — sits in the label slot of the quantity field */
+.qty-sw{display:inline-flex;gap:3px;margin-bottom:3px;min-height:12px}
+.qty-sw .qsw{background:transparent;border:1px solid var(--bd);border-radius:4px;color:var(--t3);cursor:pointer;font-size:9px;font-weight:800;letter-spacing:.5px;line-height:1;padding:3px 6px}
+.qty-sw .qsw:hover{color:var(--t1)}
+.qty-sw .qsw.on{background:rgba(234,179,8,.14);border-color:var(--yl);color:var(--yl)}
+#orderTicket #oMarginBtn{font-size:11px;font-weight:700}
+/* one-line estimate summary + expandable details */
+#orderTicket .margin-sum{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11px;color:var(--t2);line-height:1.35}
+#orderTicket .margin-sum b{font-size:12.5px;font-weight:800;color:var(--t1);font-variant-numeric:tabular-nums}
+#orderTicket .margin-sum-funds{font-size:10.5px;font-weight:700}
+#orderTicket .margin-detail-btn{flex:0 0 auto;background:transparent;border:1px solid var(--bd);color:var(--t2);font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;cursor:pointer;white-space:nowrap;transition:.15s}
+#orderTicket .margin-detail-btn:hover{color:var(--t1);border-color:var(--t3);background:var(--b4)}
+#orderTicket .margin-detail{margin-top:8px}
+#orderTicket .margin-detail[hidden]{display:none}
+@media(max-width:820px){
+  #orderTicket .ot-row{flex-direction:column;align-items:stretch;gap:7px}
+  /* the single line becomes a 2-col grid on phones — half the height */
+  #orderTicket .ot-line{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  #orderTicket .ot-line .fgrp{flex:1 1 auto}
+  #orderTicket .ot-line .fgrp:last-child:nth-child(odd){grid-column:1/-1}
+  #orderTicket .ot-row .fgrp{flex:1 1 auto}
+  #orderTicket .ot-footer{flex-direction:column;align-items:stretch}
+  #orderTicket .ot-actions{margin-left:0}
+  #orderTicket .ot-place{min-width:0}
+}
+body.density-touch #orderTicket .ot-place{min-height:44px}
+body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
+</style>
 </head>
 <body>
 <div class="tcon" id="TC"></div>
@@ -1412,20 +1476,26 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
     <div class="page-actions"><button type="button" class="btn bp" id="orderTicketBtn" onclick="toggleQuickPanel('orderTicket',this)">＋ New order</button><button type="button" class="icon-btn" onclick="ldO()" title="Refresh">↻</button></div>
   </div>
   <section class="quick-drawer cd" id="orderTicket" hidden>
-    <div class="quick-head"><span>Order ticket</span><button type="button" class="mcl" onclick="toggleQuickPanel('orderTicket',document.getElementById('orderTicketBtn'),false)">✕</button></div>
-    <div class="compact-form-grid order-form-grid">
-      <div class="fgrp span-2"><label>Instrument</label><div class="dd" id="dO1"><input class="fi" id="oI" placeholder="Search instrument…" autocomplete="off"><div class="ddl" id="dO1_L"></div></div></div>
-      <div class="fgrp"><label>Side</label><div class="tg mini-toggle" id="oST"><button type="button" class="tb buy on" onclick="setS('BUY',this)">BUY</button><button type="button" class="tb sell" onclick="setS('SELL',this)">SELL</button></div></div>
-      <div class="fgrp"><label>Type</label><select class="fi" id="oTy" onchange="tPF()"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option><option value="SL">SL</option><option value="SL-M">SL-M</option></select></div>
-      <div class="fgrp"><label>Product</label><select class="fi" id="oPr"><option value="D">Delivery</option><option value="I">Intraday</option><option value="MTF">MTF</option></select></div>
-      <div class="fgrp"><label>Quantity</label><input type="number" class="fi" id="oQ" value="1" min="1"></div>
-      <div class="fgrp" id="oPG" style="display:none"><label>Price</label><input type="number" class="fi" id="oP" step="0.05"></div>
-      <div class="fgrp" id="oTG" style="display:none"><label>Trigger</label><input type="number" class="fi" id="oTr" step="0.05"></div>
-      <div class="fgrp"><label>Validity</label><select class="fi" id="oVl"><option value="DAY">DAY</option><option value="IOC">IOC</option></select></div>
-      <div class="fgrp"><label>AMO</label><select class="fi" id="oAm"><option value="false">No</option><option value="true">Yes</option></select></div>
-      <div class="fgrp span-2" id="oDerivHint" style="display:none"><span class="ticket-hint">ℹ️ F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled.</span></div>
-      <div id="oMarginRow"><button type="button" class="btn bo" id="oMarginBtn" onclick="estMargin()">🧮 Estimate margin &amp; charges</button><div id="oMarginR" class="margin-results"><span class="muted-note">Pre-trade estimate for this ticket — required margin, full charge breakup &amp; breakeven. Nothing is placed.</span></div></div>
-      <div class="fgrp form-action"><label>&nbsp;</label><button type="button" class="btn bg" id="oBn" onclick="plO()">✅ PLACE BUY</button></div>
+    <div class="quick-head"><span>Order ticket</span><span class="qh-fohint" id="oDerivHint" style="display:none" title="F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled. MCX quantity is in LOTS on Upstox v3 — one lot of crude oil (100 barrels) is quantity 1.">ℹ️ F&amp;O: Delivery = NRML (carry to expiry). Intraday (MIS) is not allowed for buying options. MTF is equity-only. Lot size is auto-filled. MCX quantity is in LOTS.</span><button type="button" class="mcl" onclick="toggleQuickPanel('orderTicket',document.getElementById('orderTicketBtn'),false)">✕</button></div>
+    <div class="order-form-v2">
+      <div class="ot-row ot-line">
+        <div class="fgrp ot-inst"><label>Instrument</label><div class="dd" id="dO1"><input class="fi" id="oI" placeholder="Search instrument…" autocomplete="off"><div class="ddl" id="dO1_L"></div></div></div>
+        <div class="fgrp ot-side"><label>Side</label><div class="tg mini-toggle" id="oST"><button type="button" class="tb buy on" onclick="setS('BUY',this)">BUY</button><button type="button" class="tb sell" onclick="setS('SELL',this)">SELL</button></div></div>
+        <div class="fgrp ot-qty"><div class="qty-sw" id="oQSw"><button type="button" class="qsw on" data-m="qty" onclick="setQtyMode('dO1','qty')" title="Enter the broker quantity — units on NSE/BSE/CDS, lots on MCX">QTY</button><button type="button" class="qsw" data-m="lots" onclick="setQtyMode('dO1','lots')" title="Enter LOTS on any segment — auto-converted to the broker quantity when placed (units on NSE/BSE/CDS, lots on MCX)">LOTS</button></div><input type="number" class="fi" id="oQ" value="1" min="1" oninput="otAuto()"></div>
+        <div class="fgrp"><label>Type</label><select class="fi" id="oTy" onchange="tPF();otAuto()"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT</option><option value="SL">SL</option><option value="SL-M">SL-M</option></select></div>
+        <div class="fgrp" id="oPG" style="display:none"><label>Price</label><input type="number" class="fi" id="oP" step="0.05" oninput="otAuto()"></div>
+        <div class="fgrp" id="oTG" style="display:none"><label>Trigger</label><input type="number" class="fi" id="oTr" step="0.05" oninput="otAuto()"></div>
+        <div class="fgrp"><label>Product</label><select class="fi" id="oPr" onchange="otAuto()"><option value="D">Delivery</option><option value="I">Intraday</option><option value="MTF">MTF</option></select></div>
+        <div class="fgrp"><label>Validity</label><select class="fi" id="oVl" onchange="otAuto()"><option value="DAY">DAY</option><option value="IOC">IOC</option></select></div>
+        <div class="fgrp ot-amo"><label>AMO</label><select class="fi" id="oAm" onchange="otAuto()" title="After Market Order — required for placement outside the instrument's session (NSE/BSE Mon–Fri 09:15–15:30, currency 09:00–17:00, MCX 09:00–~23:30). During market hours the broker auto-treats orders as live (is_amo inferred; UDAPI100039 also documented) — the app sends live there. The order API itself is open 05:30–24:00 IST (UDAPI100074). Auto-set from the market clock on instrument pick; the place button re-checks it."><option value="false">No</option><option value="true">Yes</option></select></div>
+      </div>
+      <div class="ot-footer">
+        <div class="ot-estimate margin-results" id="oMarginR"><span class="muted-note">Auto margin &amp; charges — fills in as you complete the ticket. Nothing is placed.</span></div>
+        <div class="ot-actions">
+          <button type="button" class="btn bo" id="oMarginBtn" onclick="estMargin()" title="Re-estimate margin &amp; charges now">↻ Estimate</button>
+          <button type="button" class="btn bg ot-place" id="oBn" onclick="plO()">✅ PLACE BUY</button>
+        </div>
+      </div>
     </div>
   </section>
   <section class="cd data-panel">
@@ -1440,11 +1510,11 @@ body{font-size:13px;line-height:1.45;font-variant-numeric:tabular-nums}
     <div class="page-actions"><button type="button" class="btn bp" id="gttTicketBtn" onclick="toggleQuickPanel('gttTicket',this)">＋ Create GTT</button><button type="button" class="icon-btn" onclick="ldG()" title="Refresh">↻</button></div>
   </div>
   <section class="quick-drawer cd" id="gttTicket" hidden>
-    <div class="quick-head"><span>New GTT order</span><button type="button" class="mcl" onclick="toggleQuickPanel('gttTicket',document.getElementById('gttTicketBtn'),false)">✕</button></div>
+    <div class="quick-head"><span>New GTT order</span><span class="qh-fohint" style="display:inline-block" title="The GTT picker is limited to NSE/BSE equity &amp; F&amp;O — the broker API rejects MCX commodity GTTs with a generic error. Upstox does not allow Intraday (MIS) on buying options, so option BUY GTTs are placed as NRML (D); futures/equity follow the segment default.">ℹ️ NSE/BSE equity &amp; F&amp;O · Option BUY → NRML</span><button type="button" class="mcl" onclick="toggleQuickPanel('gttTicket',document.getElementById('gttTicketBtn'),false)">✕</button></div>
     <div class="compact-form-grid gtt-form-grid">
       <div class="fgrp span-2"><label>Instrument</label><div class="dd" id="dG1"><input class="fi" id="gI" placeholder="Search instrument…" autocomplete="off"><div class="ddl" id="dG1_L"></div></div></div>
       <div class="fgrp"><label>Side</label><select class="fi" id="gSd"><option value="BUY">BUY</option><option value="SELL">SELL</option></select></div>
-      <div class="fgrp"><label>Quantity</label><input type="number" class="fi" id="gQt" value="1" min="1"></div>
+      <div class="fgrp"><div class="qty-sw" id="gQSw"><button type="button" class="qsw on" data-m="qty" onclick="setQtyMode('dG1','qty')" title="Enter the broker quantity — units on NSE/BSE/CDS, lots on MCX">QTY</button><button type="button" class="qsw" data-m="lots" onclick="setQtyMode('dG1','lots')" title="Enter LOTS on any segment — auto-converted to the broker quantity when placed">LOTS</button></div><input type="number" class="fi" id="gQt" value="1" min="1"></div>
       <div class="fgrp"><label>Trigger type</label><select class="fi" id="gTt"><option value="ABOVE">ABOVE</option><option value="BELOW">BELOW</option><option value="IMMEDIATE">IMMEDIATE</option></select></div>
       <div class="fgrp"><label>Trigger price</label><input type="number" class="fi" id="gTr" step="0.05"></div>
       <div class="fgrp"><label>Target price <span style="color:var(--t3);font-weight:400">(optional — enables bracket)</span></label><input type="number" class="fi" id="gTg" step="0.05"></div>
@@ -1809,10 +1879,15 @@ async function rawUpstoxFetch(ep,{method='GET',body=null,query='',headersAdd={}}
   if(raw){ try{d=JSON.parse(raw);}catch{d={message:raw.slice(0,300)};} }
   if(!r.ok||d.status==='error'){
     const err=d.errors?.[0];
-    const ee=new Error(err?.message||err?.errorCode||d.message||`HTTP ${r.status}`);
+    const code=err?.errorCode||err?.error_code||'';
+    /* AUDIT (2026-09-18): keep the broker's error CODE next to the message —
+       for the GTT generic failure ("Something went wrong… please contact us")
+       the "(UDAPI100500)" suffix is the only machine-checkable detail. */
+    const ee=new Error((err?.message||d.message||`HTTP ${r.status}`)+(code?` (${code})`:''));
     /* AUDIT-C3: carry the HTTP status so isAuthFailure() can act on a hard 401
        even when Upstox returns a generic message body. */
     ee.status=r.status;
+    ee.code=code;
     throw ee;
   }
   return d;
@@ -2020,8 +2095,29 @@ function instrumentGroup(inst){const s=String(inst.segment||String(inst.k||'').s
 function instrumentAllowed(inst,contextId){
   /* Underlying guard: hide indices with no listed option contracts from the OC picker. */
   if(contextId==='dOC'&&instrumentGroup(inst)==='INDEX'&&!optionableIndexSet().has(inst.k))return false;
-  const cfg=INSTRUMENT_CONTEXTS[contextId]||INSTRUMENT_CONTEXTS.global,segments=cfg.segments.split(',');return segments.includes('ALL')||segments.includes(instrumentGroup(inst));
+  const cfg=INSTRUMENT_CONTEXTS[contextId]||INSTRUMENT_CONTEXTS.global,segments=cfg.segments.split(',');
+  /* AUDIT FIX (2026-09-18): cfg.exchanges was declared but never enforced, so
+     MCX instruments (segment MCX_FO — which instrumentGroup buckets as 'FO')
+     leaked into the NSE/BSE-only GTT picker (dG1); the crude-oil CE GTT then
+     died at the broker with only the generic "Something went wrong" error.
+     Honor the exchange allow-list now (a missing x stays permissive). */
+  const exs=String(cfg.exchanges||'ALL').split(','),ex=String(inst?.x||'').toUpperCase();
+  if(ex&&!exs.includes('ALL')&&!exs.includes(ex))return false;
+  return segments.includes('ALL')||segments.includes(instrumentGroup(inst));
 }
+/* True for option instruments (CE/PE). Trusts the master's instrument type;
+   falls back to the trading-symbol shape (strike digits immediately before
+   the CE/PE suffix, e.g. CRUDEOIL26OCT10000CE) so raw picks without a type
+   still work — plain equities like "ACE" must NOT match. Needed because
+   Upstox rejects Intraday (MIS) on BUYING options (2026-09-18: a triggered
+   crude-oil CE GTT with product 'I' died at exchange validation with only
+   the generic "Something went wrong… please contact us"). */
+function instrumentIsOption(inst){
+  const t=String(inst?.type||'').toUpperCase();
+  if(t==='CE'||t==='PE')return true;
+  return /\d(CE|PE)$/i.test(String(inst?.s||'').trim());
+}
+window.instrumentIsOption=instrumentIsOption;
 function instrumentExpiryTime(inst){const e=inst?.expiry;if(e==null||e===''||e==='-')return null;const s=String(e);if(/^\d{13}$/.test(s))return Number(s);if(/^\d{10}$/.test(s))return Number(s)*1000;const t=Date.parse(s);return Number.isFinite(t)?t:null;}
 function instrumentExpiryLabel(inst){const t=instrumentExpiryTime(inst);if(t==null)return '';const d=new Date(t);if(!Number.isFinite(d.getTime()))return '';const mth=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][d.getMonth()],yy=String(d.getFullYear()).slice(2);return `${String(d.getDate()).padStart(2,'0')} ${mth} ${yy}`;}
 function instrumentSearchText(inst){return `${inst.s} ${inst.n} ${inst.underlyingSymbol||''} ${inst.type||''} ${instrumentExpiryLabel(inst)} ${inst.expiry||''} ${inst.strike||''} ${inst.exchangeToken||''}`.toUpperCase();}
@@ -2346,6 +2442,41 @@ async function ensureInstrumentMasterOnStartup(){
 function chooseInstrumentMasterFile(){
   if($.masterLoading)return;const input=document.createElement('input');input.type='file';input.accept='.gz,.json,application/gzip,application/json';input.hidden=true;document.body.appendChild(input);const cleanup=()=>setTimeout(()=>input.remove(),0);input.addEventListener('change',async()=>{const file=input.files?.[0];if(!file){cleanup();return;}$.masterLoading=true;refreshActiveInstrumentSearch();ts(`Importing ${file.name}…`,'i');try{const buffer=await file.arrayBuffer(),updatedAt=Date.now(),count=await instrumentMasterFromBuffer(buffer,file.name,{name:file.name,source:'import',updatedAt,lastModified:file.lastModified});try{await instrumentCacheWrite(buffer,{name:file.name,source:'import',updatedAt,lastModified:file.lastModified});$.instrumentMasterMeta.cached=true;}catch(cacheError){console.warn('Instrument master cache write',cacheError);ts('File imported for this session, but persistent cache was unavailable','w');}ts(`${count.toLocaleString('en-IN')} instruments imported and cached. This cache remains until you replace it.`,'s');}catch(e){ts('Instrument master import: '+e.message,'e');}finally{$.masterLoading=false;refreshActiveInstrumentSearch();cleanup();}});input.addEventListener('cancel',cleanup);input.click();
 }
+/* ============ Market clock (IST) — after-hours order handling (2026-09-18) ============
+   Upstox v3 Place Order docs: the API accepts orders 05:30–24:00 IST (UDAPI100074
+   outside that); LIVE orders only inside the instrument's exchange session; outside
+   the session an order must be AMO (is_amo=true). CAVEAT (verified 2026-09-18):
+   the same page both says is_amo is AUTO-INFERRED ("Automatic AMO detection" —
+   is_amo:true in market hours is processed as live) AND lists UDAPI100039 "AMO
+   orders cannot be placed during the market hours" in its error table. The app never
+   sends is_amo:true inside a session (auto-sync + confirm flip it to false) and
+   always sends true outside it — correct under BOTH readings. Sessions differ by segment — MCX non-agri (crude, metals,
+   energy) runs 09:00–23:30 IST (till ~23:55 while US DST is off), currency (CDS)
+   09:00–17:00, NSE/BSE equity & F&O 09:15–15:30, all Mon–Fri. Exchange holidays are
+   not knowable client-side — the broker stays the final arbiter and its rejection
+   reasons surface via the error passthrough. GTT placement is broker-side (no
+   exchange order until the trigger fires), so it works after hours. */
+function istClock(d=new Date()){return new Date(d.getTime()+(d.getTimezoneOffset()+330)*60000);}
+function marketPhase(group){
+  const d=istClock(),day=d.getDay();if(day===0||day===6)return'closed';
+  const m=d.getHours()*60+d.getMinutes(),g=String(group||'').toUpperCase();
+  if(g==='COMM'||g==='MCX'){const close=(d.getMonth()>=2&&d.getMonth()<=9)?1410:1435;return(m>=540&&m<close)?'open':'closed';}
+  if(g==='CURR')return(m>=540&&m<1020)?'open':'closed';
+  return(m>=555&&m<930)?'open':'closed';
+}
+function marketPhaseFor(sel){const s=sel||{};
+  /* MCX_FO buckets as 'FO' in instrumentGroup (chart roll logic depends on that)
+     — detect MCX by key prefix so commodity picks get the 09:00–~23:30 session. */
+  return marketPhase(/^MCX/i.test(String(s.k||''))||instrumentGroup(s)==='COMM'?'COMM':instrumentGroup(s));}
+function placeApiOpen(){return istClock().getHours()*60+istClock().getMinutes()>=330;}
+window.istClock=istClock;window.marketPhase=marketPhase;window.placeApiOpen=placeApiOpen;
+/* Keep the AMO select in step with the session — silent: the field shows the
+   flip, the place-time confirm explains it, plO() still guards mismatches. */
+function amoSyncSelect(inst){
+  const am=document.getElementById('oAm');if(!am)return;
+  const sel=inst||$.ddSel?.dO1,want=marketPhaseFor(sel||{})==='open'?'false':'true';
+  if(am.value!==want)am.value=want;
+}
 function applyProductForInstrument(inst){
   const sel=document.getElementById('oPr');if(!sel)return;
   const grp=instrumentGroup(inst||{}),isDerivative=grp==='FO'||grp==='CURR'||grp==='COMM';
@@ -2358,10 +2489,100 @@ function applyProductForInstrument(inst){
   else if(!['D','I','MTF'].includes(keep)){sel.value='D';}
   const hint=document.getElementById('oDerivHint');if(hint)hint.style.display=isDerivative?'':'none';
 }
-function applyInstrumentDefaults(ddId,inst){
+/* ============ QTY ↔ LOTS switch (2026-09-18) ============================
+   The broker quantity is UNITS on NSE/BSE/CDS and LOTS on MCX (doc-verified),
+   but traders think in lots on every segment. The quantity field's QTY/LOTS
+   switch sets what the NUMBER in the box means; qtyParts() converts it to the
+   exact broker quantity for place / estimate / GTT. Basis per pick: MCX always
+   starts in LOTS (that IS its broker quantity), everything else in QTY (units);
+   a manual switch is sticky ($.qtyPref) for future non-MCX picks. */
+function qtyNativeMode(inst){return(/^MCX/i.test(String(inst?.k||''))||instrumentGroup(inst||{})==='COMM')?'lots':'qty';}
+function qtyTitle(mode,lot,isMcx){
+  if(mode==='lots')return`Number = LOTS (1 lot = ${lot} units). Converted to the broker quantity when placed${isMcx?' — MCX sends lots directly':''}.`;
+  if(isMcx)return`Number = UNITS of the commodity — multiples of ${lot} (1 lot = ${lot} units). Converted to LOTS on place (MCX quantity is lots).`;
+  return lot>1?`Quantity is in UNITS — multiples of ${lot} (1 lot = ${lot} units). Auto-filled to 1 lot on instrument pick.`:'Quantity is in units (lot size 1).';
+}
+function renderQtySw(form){
+  const wrap=form==='dO1'?document.getElementById('oQSw'):form==='dG1'?document.getElementById('gQSw'):null;if(!wrap)return;
+  const mode=($.qtyModes||{})[form]||'qty';
+  wrap.querySelectorAll('.qsw').forEach(b=>b.classList.toggle('on',b.dataset.m===mode));
+}
+function setQtyMode(form,mode){
+  const el=document.getElementById(form==='dO1'?'oQ':'gQt');if(!el)return;
+  const inst=$.ddSel[form]||{},lot=Math.max(1,Math.round(Number(inst.minimumLot||inst.lot||1))||1);
+  const prev=($.qtyModes=$.qtyModes||{})[form]||qtyNativeMode(inst);
+  if(prev===mode)return;
+  $.qtyModes[form]=mode;$.qtyPref=mode;/* sticky for future non-MCX picks */
+  /* convert the current number to the new basis (snap to 1 lot if it doesn't divide) */
+  const cur=parseInt(el.value,10);
+  if(Number.isInteger(cur)&&cur>0)el.value=mode==='lots'?(cur%lot===0?cur/lot:1):cur*lot;
+  else el.value=mode==='lots'?1:lot;
+  const basis=mode==='lots'?1:lot;el.min=basis;el.step=basis;
+  el.title=qtyTitle(mode,lot,/MCX/i.test(String(inst.k||''))||instrumentGroup(inst)==='COMM');
+  renderQtySw(form);
+  ts(mode==='lots'?'Quantity entry: LOTS — converted to the broker quantity when placed':'Quantity entry: QTY — units on NSE/BSE/CDS · lots on MCX','i');
+  if(form==='dO1')otAuto();
+}
+/* Converts the ticket number to the broker quantity (units NSE/BSE/CDS, lots
+   MCX) and validates it for the active basis. Shared by plO/crG/estMargin. */
+function qtyParts(form){
+  const el=document.getElementById(form==='dO1'?'oQ':'gQt'),inst=$.ddSel[form]||{};
+  const lot=Math.max(1,Math.round(Number(inst.minimumLot||inst.lot||1))||1);
+  const isMcx=/^MCX/i.test(String(inst.k||''))||instrumentGroup(inst)==='COMM';
+  const mode=($.qtyModes||{})[form]||qtyNativeMode(inst);
+  const raw=String(el?.value||'').trim(),n=parseInt(raw,10);
+  if(!el||!Number.isInteger(n)||n<=0||String(n)!==String(parseFloat(raw)))
+    return{ok:false,msg:'Quantity must be a positive whole number'};
+  if(mode==='lots')return{ok:true,mode,lot,isMcx,lots:n,units:n*lot,qty:isMcx?n:n*lot};
+  if(!isMcx){
+    if(n%lot!==0)return{ok:false,msg:`Quantity must be a multiple of lot size ${lot}`};
+    return{ok:true,mode,lot,isMcx,lots:n/lot,units:n,qty:n};
+  }
+  if(n%lot!==0)return{ok:false,msg:`MCX quantity (units) must be a multiple of lot size ${lot} — 1 lot = ${lot} units`};
+  return{ok:true,mode,lot,isMcx,lots:n/lot,units:n,qty:n/lot};
+}
+window.qtyParts=qtyParts;
+function applyInstrumentDefaults(ddId,inst,opts={}){
   const lot=Math.max(1,Math.round(Number(inst.minimumLot||inst.lot||1))||1),tick=Number(inst.tick)||.05;
-  const syncQty=(el)=>{if(!el)return;el.min=lot;el.step=lot;const cur=parseInt(el.value,10);if(!Number.isInteger(cur)||cur<=0||cur%lot!==0)el.value=lot;};
-  if(ddId==='dO1'){syncQty(document.getElementById('oQ'));const op=document.getElementById('oP'),ot=document.getElementById('oTr');if(op)op.step=tick;if(ot)ot.step=tick;applyProductForInstrument(inst);}
+  /* AUDIT-API (F-1) CONFIRMED LIVE (2026-09-18) and in the v2/v3 Place Order
+     request-body docs ("For commodity - number of lots is accepted. For other
+     Futures & Options and equities - number of units"): MCX quantity is LOTS —
+     a Q:100 BUY of a 100-lot crude CE demanded ₹58,40,000 margin (100 lots ×
+     100 barrels). MCX tickets count LOTS (default/step 1); NSE/BSE/CDS stays
+     in units with lot-multiple validation as before. */
+  const isMcx=/^MCX/i.test(String(inst?.k||''))||instrumentGroup(inst||{})==='COMM';
+  /* 2026-09-18 ("Orders quantity not auto fill") + QTY↔LOTS switch: every
+     instrument change resets the field to that instrument's basis AND says so
+     — the QTY/LOTS switch shows the basis, the title explains it and a toast
+     announces the fill (background/chart/OC callers pass quiet:true). MCX
+     starts in LOTS (its broker quantity), others in QTY (units) unless the
+     user's sticky switch preference says otherwise. Re-picking the same
+     instrument keeps a valid quantity. */
+  if(ddId==='dO1'||ddId==='dG1')($.qtyModes=$.qtyModes||{})[ddId]=isMcx?'lots':($.qtyPref||'qty');
+  const key=String(inst?.k||''),mode=($.qtyModes||{})[ddId]||'qty',basis=mode==='lots'?1:lot;
+  const syncQty=(el)=>{if(!el)return;
+    const changed=el.dataset.lotKey!==key;el.dataset.lotKey=key;
+    const modeFlip=el.dataset.qtyMode!==mode;el.dataset.qtyMode=mode;
+    el.min=basis;el.step=basis;
+    el.title=qtyTitle(mode,lot,isMcx);
+    const valid=(n)=>Number.isInteger(n)&&n>0&&(mode==='lots'||n%lot===0);
+    const cur=parseInt(el.value,10);
+    if(changed){
+      el.value=basis;
+      if(!opts.quiet&&(isMcx||lot>1))
+        ts(mode==='lots'?`Quantity auto-filled: 1 lot (= ${lot} units of ${inst?.s||key})`
+          :(isMcx?`Quantity auto-filled: ${lot} units (= 1 lot of ${inst?.s||key})`
+                 :`Quantity auto-filled: ${lot} (1 lot of ${inst?.s||key})`),'i');
+      return;}
+    /* the sticky switch preference can flip the basis on a same-instrument
+       re-pick — convert the number so its meaning doesn't silently change */
+    if(modeFlip){
+      if(Number.isInteger(cur)&&cur>0)el.value=mode==='lots'?(cur%lot===0?cur/lot:1):cur*lot;
+      else el.value=basis;
+      return;}
+    if(!valid(cur))el.value=basis;};
+  renderQtySw(ddId);
+  if(ddId==='dO1'){syncQty(document.getElementById('oQ'));const op=document.getElementById('oP'),ot=document.getElementById('oTr');if(op)op.step=tick;if(ot)ot.step=tick;applyProductForInstrument(inst);amoSyncSelect(inst);}
   if(ddId==='dG1'){syncQty(document.getElementById('gQt'));const gt=document.getElementById('gTr');if(gt)gt.step=tick;}
 }
 /* AUDIT FIX (round 4): the decimal-scaled compare pre-rounded the NUMERATOR
@@ -2396,6 +2617,7 @@ function ddPick(ddId,key,sym,instrument=null){
     }catch(e){}
   }
   const inst=normalizeInstrument(instrument||{k:key,s:sym,n:sym,x:key.split('_')[0]})||{k:key,s:sym,lot:1,minimumLot:1,tick:.05};const inp=document.querySelector(`#${ddId} input`);if(inp)inp.value=inst.s;$.ddSel[ddId]=inst;document.getElementById(ddId+'_L')?.classList.remove('on');applyInstrumentDefaults(ddId,inst);proSetActiveInstrument(inst,true);
+  if(ddId==='dO1')otAuto();/* new instrument → re-estimate in the ticket */
   if(ddId==='dC1'){$.cKey=inst.k;$.cSym=inst.s;document.getElementById('cSN').textContent=inst.s;ldCh();}
   if(ddId==='dOC')ocSyncFromIndex(inst.k,inst.s);
   if(ddId==='dF1')setTimeout(()=>loadFundamentals(),0);
@@ -2674,7 +2896,7 @@ async function doMd(){
   finally{$.modBusy=false;}
 }
 async function canO(oid){if(!oid||!confirm('Cancel this order?'))return;try{await upstoxFetch(END.ORDER_CANCEL,{method:'DELETE',query:`?order_id=${encodeURIComponent(oid)}`});ts('Cancelled','s');proInvalidate('/order/');setTimeout(ldO,1000);}catch(e){ts('Can: '+e.message,'e');}}
-async function oHist(oid){if(!oid)return;const ti=document.getElementById('dtTi'),bd=document.getElementById('dtBd');if(ti)ti.textContent='History';if(bd)bd.innerHTML='<div class="ld"><div class="sp"></div></div>';opM('dtM');try{const d=await upstoxFetch(END.ORDER_HISTORY,{query:`?order_id=${encodeURIComponent(oid)}`});if(bd)bd.innerHTML=(d.data||[]).length?(d.data||[]).map(h=>`<div style="padding:5px;border-bottom:1px solid var(--bd);font-size:10px"><b>${escapeHtml(h.status)}</b> Q:${escapeHtml(h.quantity)} P:${escapeHtml(h.price)}</div>`).join(''):'<div class="emp"><div class="ed">No history rows</div></div>';}catch(e){if(bd)bd.innerHTML=`<div class="emp"><div class="ed">${escapeHtml(e.message)}</div></div>`;}}
+async function oHist(oid){if(!oid)return;const ti=document.getElementById('dtTi'),bd=document.getElementById('dtBd');if(ti)ti.textContent='History';if(bd)bd.innerHTML='<div class="ld"><div class="sp"></div></div>';opM('dtM');try{const d=await upstoxFetch(END.ORDER_HISTORY,{query:`?order_id=${encodeURIComponent(oid)}`});if(bd)bd.innerHTML=(d.data||[]).length?(d.data||[]).map(h=>`<div style="padding:5px;border-bottom:1px solid var(--bd);font-size:10px"><b>${escapeHtml(h.status)}</b> Q:${escapeHtml(h.quantity)} P:${escapeHtml(h.price)}${h.status_message?`<div style="color:var(--rd);margin-top:2px">↳ ${escapeHtml(h.status_message)}</div>`:''}</div>`).join(''):'<div class="emp"><div class="ed">No history rows</div></div>';}catch(e){if(bd)bd.innerHTML=`<div class="emp"><div class="ed">${escapeHtml(e.message)}</div></div>`;}}
 
 
 
@@ -2720,7 +2942,7 @@ function selI(k,s){
       }
     }
   }catch(e){}
-proSetActiveInstrument(inst||{k,s,n:s,x:String(k||'').split('_')[0]},true);$.cKey=k;$.cSym=s;$.cd=[];document.getElementById('cSN').textContent=s;['dC1','dO1','dA1'].forEach(id=>{const inp=document.querySelector(`#${id} input`);if(inp)inp.value=s;$.ddSel[id]=inst||{k,s};});if(inst){try{applyInstrumentDefaults('dO1',inst);}catch(e){}}nav('chart');
+proSetActiveInstrument(inst||{k,s,n:s,x:String(k||'').split('_')[0]},true);$.cKey=k;$.cSym=s;$.cd=[];document.getElementById('cSN').textContent=s;['dC1','dO1','dA1'].forEach(id=>{const inp=document.querySelector(`#${id} input`);if(inp)inp.value=s;$.ddSel[id]=inst||{k,s};});if(inst){try{applyInstrumentDefaults('dO1',inst,{quiet:true});}catch(e){}}nav('chart');
 }
 
 function setupGlobalSearch(){const gS=document.getElementById('gS');let t=null;gS.addEventListener('input',()=>{clearTimeout(t);t=setTimeout(()=>gSr(gS.value),150);});gS.addEventListener('focus',()=>{if(gS.value)gSr(gS.value);});gS.addEventListener('blur',()=>setTimeout(gSh,250));}
@@ -3294,36 +3516,63 @@ function setS(s,el){
   const target=el||document.querySelector(`#oST .${$.oSide==='BUY'?'buy':'sell'}`);
   if(target)target.classList.add('on');
   const bn=document.getElementById('oBn');
-  bn.className=$.oSide==='BUY'?'btn bg':'btn br';
+  bn.className='btn ot-place '+($.oSide==='BUY'?'bg':'br');
   bn.textContent=$.oSide==='BUY'?'✅ PLACE BUY':'📉 PLACE SELL';
+  otAuto();
 }
 
 async function plO(){
   const sel=gDD('dO1');if(!sel)return ts('Select an instrument from the dropdown','e');
-  const qtyRaw=String(document.getElementById('oQ')?.value||'').trim();
-  const qty=parseInt(qtyRaw,10);
   const orderType=document.getElementById('oTy')?.value||'MARKET';
   const price=Number(document.getElementById('oP')?.value||0);
   const trigger=Number(document.getElementById('oTr')?.value||0);
-  const lot=Math.max(1,Math.round(Number(sel.minimumLot||sel.lot||1))||1);
   const tick=Number(sel.tick)||.05;
-  if(!Number.isInteger(qty)||qty<=0||String(qty)!==String(parseFloat(qtyRaw)))return ts('Quantity must be a positive whole number','e');
-  if(qty%lot!==0)return ts(`Quantity must be a multiple of lot size ${lot}`,'e');
+  /* QTY ↔ LOTS switch: whatever basis is active, qtyParts() returns the
+     quantity exactly as the broker expects it (units NSE/BSE/CDS, lots MCX). */
+  const qp=qtyParts('dO1');
+  if(!qp.ok)return ts(qp.msg,'e');
+  const qty=qp.qty,lot=qp.lot,isMcx=qp.isMcx;
+  const qtyTxt=qp.isMcx?`${qty} lot${qty===1?'':'s'} (= ${qp.units} units)`:(qp.mode==='lots'?`${qp.lots} lot${qp.lots===1?'':'s'} (= ${qp.units} units)`:String(qty));
   if(['LIMIT','SL'].includes(orderType)&&(!Number.isFinite(price)||price<=0))return ts('Enter a valid limit price','e');
   if(['LIMIT','SL'].includes(orderType)&&!priceOnTick(price,tick))return ts(`Price must follow tick size ₹${tick}`,'e');
   if(['SL','SL-M'].includes(orderType)&&(!Number.isFinite(trigger)||trigger<=0))return ts('Enter a valid trigger price','e');
   if(['SL','SL-M'].includes(orderType)&&!priceOnTick(trigger,tick))return ts(`Trigger must follow tick size ₹${tick}`,'e');
   const willSlice=!!sel.freeze&&qty>sel.freeze;
   if(willSlice&&!confirm(`Quantity ${qty} exceeds freeze limit ${sel.freeze}. Place as sliced child orders?`))return;
-  /* AUDIT-API (F-1): Upstox V3 docs state commodity quantity is in LOTS while
-     F&O/equity is in UNITS — surface an explicit check until verified in sandbox. */
-  if(/^MCX_/i.test(String(sel.k||''))&&!confirm(`MCX check: Upstox V3 docs say commodity quantity is counted in LOTS. Is ${qty} your intended LOT count (not units) for ${sel.s}?`))return;
+  /* AUDIT-API (F-1), verified live: MCX quantity is in LOTS — echo the
+     unit conversion so ₹58.4L-style surprises are visible before sending. */
+  if(isMcx&&!confirm(`MCX: quantity is counted in LOTS on Upstox v3 — ${qty} lot${qty===1?'':'s'} = ${qty*lot} units of ${sel.s}. Continue?`))return;
   const side=$.oSide==='SELL'?'SELL':'BUY';
-  if(!confirm(`${side} ${qty} ${sel.s||sel.k} · ${orderType}${orderType==='MARKET'||orderType==='SL-M'?'':` @ ${price}`}${['SL','SL-M'].includes(orderType)?` trigger ${trigger}`:''}?`))return;
+  const oPrd=document.getElementById('oPr')?.value||'D';
+  /* Upstox rejects MIS (Intraday) BUYs on options — the F&O hint's rule —
+     block it client-side instead of eating an exchange rejection. */
+  if(side==='BUY'&&oPrd==='I'&&instrumentIsOption(sel))return ts('Intraday (MIS) is not allowed for buying options — switch Product to Delivery (NRML)','e');
+  /* After-hours (2026-09-18): a LIVE order is only valid inside the
+     instrument's exchange session (NSE/BSE 09:15–15:30 · CDS 09:00–17:00 ·
+     MCX 09:00–~23:30, Mon–Fri). Outside it the broker requires AMO
+     (is_amo=true) — UDAPI100039 rejects AMO during market hours, and the
+     place API itself is closed 00:00–05:30 IST (UDAPI100074). Check the
+     ticket against the market clock and offer the correct variant. */
+  if(!placeApiOpen())return ts('Upstox accepts orders only 05:30 AM–12:00 AM IST (UDAPI100074) — retry after 5:30 AM','e');
+  const amoOn=()=>document.getElementById('oAm')?.value==='true';
+  if(marketPhaseFor(sel)!=='open'){
+    if(!amoOn()){
+      if(!confirm(`Market is closed for ${isMcx?'MCX (session Mon–Fri 09:00–~23:30 IST)':'this segment (NSE/BSE session Mon–Fri 09:15–15:30 IST)'}. After-hours orders must be AMO — queued for the next session. Place as AMO?`))return ts('Market closed — nothing sent. AMO Yes queues the order for the next session.','i');
+      const am=document.getElementById('oAm');if(am)am.value='true';
+    }
+  }else if(amoOn()){
+    /* Docs are self-contradictory here: the "Automatic AMO detection" callout says
+       is_amo:true is auto-inferred to live in market hours, while the error table
+       lists UDAPI100039 (AMO rejected during market hours). Send live — the one
+       variant that is correct under both readings. */
+    if(!confirm('Market is OPEN — AMO applies only outside market hours (docs: auto-treated as live, or rejected with UDAPI100039). Place as a live order instead?'))return;
+    const am=document.getElementById('oAm');if(am)am.value='false';
+  }
+  if(!confirm(`${side} ${qtyTxt} ${sel.s||sel.k} · ${orderType}${orderType==='MARKET'||orderType==='SL-M'?'':` @ ${price}`}${['SL','SL-M'].includes(orderType)?` trigger ${trigger}`:''}${amoOn()?' · AMO (next session)':''}?`))return;
   const btn=document.getElementById('oBn');if(!btn||btn.disabled||$.orderBusy)return;btn.disabled=true;$.orderBusy=true;
   try{
     const d=await upstoxFetch(END.ORDER_PLACE,{method:'POST',body:{
-      quantity:qty,product:document.getElementById('oPr')?.value||'D',
+      quantity:qty,product:oPrd,
       validity:document.getElementById('oVl')?.value||'DAY',
       price:['MARKET','SL-M'].includes(orderType)?0:price,tag:'uptrade-web',
       instrument_token:sel.k,order_type:orderType,transaction_type:side,
@@ -3332,7 +3581,7 @@ async function plO(){
     }});
     const ids=d.data?.order_ids||[d.data?.order_id].filter(Boolean);
     const lat=d.metadata?.latency;
-    ts(`Order placed${ids.length?': '+ids.join(', '):''}${willSlice?' (sliced)':''}${lat!=null?` · broker ${lat} ms`:''}`,'s');
+    ts(`Order placed${ids.length?': '+ids.join(', '):''}${willSlice?' (sliced)':''}${amoOn()?' · AMO — queued for the next session':''}${lat!=null?` · broker ${lat} ms`:''}`,'s');
     proInvalidate('/order/');setTimeout(ldO,900);
   }catch(e){ts('Order: '+e.message,'e');}
   finally{btn.disabled=false;$.orderBusy=false;}
@@ -3350,25 +3599,33 @@ async function plO(){
    hub does not invalidate the GET cache the way mutating POSTs do. */
 $.marginSeq=0;$.marginBusy=false;
 function estMarginNum(v){const n=Number(v);return Number.isFinite(n)?n:0;}
-async function estMargin(){
-  if(!$.tok)return ts('Log in first to estimate margin','w');
+async function estMargin(opts){
+  const auto=!!(opts&&opts.auto);
+  /* AUTO mode (ticket-edit driven, debounced via otAuto): a validation
+     miss parks a muted note in the results box instead of toasting — the
+     user is mid-typing, not asking. The ↻ button keeps the explicit,
+     toasting behaviour. */
+  const bail=(toastMsg,note)=>{if(auto)otEstNote(`<span class="muted-note">${note}</span>`);else ts(toastMsg,'e');};
+  const idleNote='<span class="muted-note">Auto margin &amp; charges — fills in as you complete the ticket. Nothing is placed.</span>';
+  if(!$.tok){if(auto){otEstNote('<span class="muted-note">Log in to see margin &amp; charges.</span>');return;}return ts('Log in first to estimate margin','w');}
   if($.marginBusy)return;
   const btn=document.getElementById('oMarginBtn'),box=document.getElementById('oMarginR');
-  const sel=gDD('dO1');if(!sel)return ts('Select an instrument from the dropdown','e');
-  const qtyRaw=String(document.getElementById('oQ')?.value||'').trim(),qty=parseInt(qtyRaw,10);
+  const sel=gDD('dO1');if(!sel){bail('Select an instrument from the dropdown','Pick an instrument to see the estimate.');return;}
   const orderType=document.getElementById('oTy')?.value||'MARKET';
   let product=document.getElementById('oPr')?.value||'D';if(!['D','I','MTF'].includes(product))product='D';
   const side=$.oSide==='SELL'?'SELL':'BUY';
   const lot=Math.max(1,Math.round(Number(sel.minimumLot||sel.lot||1))||1),tick=Number(sel.tick)||.05;
-  if(!Number.isInteger(qty)||qty<=0||String(qty)!==String(parseFloat(qtyRaw)))return ts('Quantity must be a positive whole number','e');
-  if(qty%lot!==0)return ts(`Quantity must be a multiple of lot size ${lot}`,'e');
+  /* QTY ↔ LOTS switch — estimate the converted broker quantity (see qtyParts). */
+  const qp=qtyParts('dO1');
+  if(!qp.ok){const m=qp.msg;bail(m,m.includes('whole number')?'Enter a whole quantity to see the estimate.':`${m} — the estimate resumes when it is.`);return;}
+  const qty=qp.qty;
   /* Sync price check for priced order types happens BEFORE the loading state,
      so a bad ticket never leaves a spinner behind. */
   let ticketPrice=0;
   if(['LIMIT','SL'].includes(orderType)){
     ticketPrice=Number(document.getElementById('oP')?.value||0);
-    if(!Number.isFinite(ticketPrice)||ticketPrice<=0)return ts('Enter a valid limit price','e');
-    if(!priceOnTick(ticketPrice,tick))return ts(`Price must follow tick size ₹${tick}`,'e');
+    if(!Number.isFinite(ticketPrice)||ticketPrice<=0){bail('Enter a valid limit price','Enter a valid limit price to see the estimate.');return;}
+    if(!priceOnTick(ticketPrice,tick)){bail(`Price must follow tick size ₹${tick}`,`Price must follow tick size ₹${tick}.`);return;}
   }
   const seq=++$.marginSeq;
   $.marginBusy=true;if(btn)btn.disabled=true;
@@ -3381,7 +3638,7 @@ async function estMargin(){
         if(seq!==$.marginSeq)return;
         price=estMarginNum(Object.values(q.data||{})[0]?.last_price);
       }catch(e){price=0;}
-      if(!(price>0)){if(box)box.innerHTML='<span class="muted-note">Pre-trade estimate for this ticket — required margin, full charge breakup &amp; breakeven. Nothing is placed.</span>';return ts('Live price unavailable — enter a LIMIT price or retry','e');}
+      if(!(price>0)){if(auto){if(seq===$.marginSeq)otEstNote('<span class="muted-note">Live price unavailable right now — it will retry on your next change.</span>');return;}if(box)box.innerHTML=idleNote;return ts('Live price unavailable — enter a LIMIT price or retry','e');}
       priceSrc='LTP';
     }
     /* Margin (read-only POST), brokerage (GET, 45s TTL keyed on the full query)
@@ -3395,29 +3652,44 @@ async function estMargin(){
     ]);
     if(seq!==$.marginSeq||!box)return;
     /* Logout mid-flight: never leave a stuck spinner or paint money UI with no session. */
-    if(!$.tok){box.innerHTML='<span class="muted-note">Pre-trade estimate for this ticket — required margin, full charge breakup &amp; breakeven. Nothing is placed.</span>';return;}
+    if(!$.tok){box.innerHTML=idleNote;return;}
     const mOk=m.status==='fulfilled',bOk=b.status==='fulfilled';
     if(!mOk&&!bOk){
       box.innerHTML='<span class="margin-err">Estimate failed — ticket unchanged. Check the connection and retry.</span>';
-      return ts('Estimate failed: '+(m.reason?.message||b.reason?.message||'unknown error'),'e');
+      if(!auto)ts('Estimate failed: '+(m.reason?.message||b.reason?.message||'unknown error'),'e');
+      return;
     }
     box.innerHTML=estMarginHtml({sel,qty,product,side,orderType,price,priceSrc,
       margin:mOk?m.value?.data:null,marginErr:mOk?null:(m.reason?.message||'failed'),
       brok:bOk?b.value?.data?.charges:null,brokErr:bOk?null:(b.reason?.message||'failed'),
       funds:f.status==='fulfilled'?fundsSummary(f.value.response?.data):null});
-    ts('Margin & charges estimated','s');
+    if(!auto)ts('Margin & charges estimated','s');
   }finally{
     if(seq===$.marginSeq){$.marginBusy=false;if(btn)btn.disabled=false;}
   }
 }
 function estMarginRow(label,value,cls){return `<div class="margin-row"><span>${label}</span><b class="${cls||''}">${value}</b></div>`;}
+function estMarginFundsText(finalMargin,funds){
+  if(!funds)return '';
+  const avail=estMarginNum(funds.available);
+  return avail>=finalMargin?`✓ Covered — ${fm(avail)} available`:`✗ Shortfall ${fm(finalMargin-avail)} — ${fm(avail)} available`;
+}
 function estMarginFunds(finalMargin,funds){
   if(!funds)return '<div class="margin-note">Funds unavailable — coverage not checked.</div>';
-  const avail=estMarginNum(funds.available);
-  if(avail>=finalMargin)return `<div class="margin-note pp">✓ Covered — ${fm(avail)} available</div>`;
-  return `<div class="margin-note pn">✗ Shortfall ${fm(finalMargin-avail)} — ${fm(avail)} available</div>`;
+  return `<div class="margin-note ${estMarginNum(funds.available)>=finalMargin?'pp':'pn'}">${estMarginFundsText(finalMargin,funds)}</div>`;
 }
 function estMarginHtml(r){
+  /* ONE compact summary line (charges + required margin + funds coverage)
+     with the full breakup behind the Details toggle — the ticket footer
+     stays short; nothing is lost, it's just folded away. */
+  const mOk=!!r.margin,bOk=!!r.brok;
+  const fin=mOk?estMarginNum(r.margin.final_margin):0,tot=bOk?estMarginNum(r.brok.total):0;
+  const sumParts=[];
+  if(bOk)sumParts.push(`Charges <b>${fm(tot)}</b>`);
+  if(mOk)sumParts.push(`Required margin <b>${fm(fin)}</b>`);
+  const fundsTxt=(mOk&&r.funds)?estMarginFundsText(fin,r.funds):'';
+  const covered=!!r.funds&&estMarginNum(r.funds.available)>=fin;
+  const sum=`<div class="margin-sum">${sumParts.length?sumParts.join(' + '):'<span class="margin-err">Estimate unavailable</span>'}${fundsTxt?`<span class="margin-sum-funds ${covered?'pp':'pn'}">${fundsTxt}</span>`:''}<button type="button" class="margin-detail-btn" onclick="estMarginToggleDetail()">${$.marginDetailOpen?'Hide details ⌃':'Details ⌄'}</button></div>`;
   const head=`<div class="margin-head"><b>${escapeHtml(r.sel.s||r.sel.k)}</b><span>${r.side} ${r.qty} • ${escapeHtml(r.product)} • ${escapeHtml(r.orderType)} @ ${r.priceSrc==='LTP'?'LTP ':''}₹${r.price.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})} • ${new Date().toLocaleTimeString()}</span></div>`;
   let mh='';
   if(r.margin){
@@ -3447,8 +3719,42 @@ function estMarginHtml(r){
   }else{
     bh=`<div class="margin-card"><div class="margin-title">Charges (one side)</div><div class="margin-err">${escapeHtml(r.brokErr||'failed')}</div></div>`;
   }
-  return head+`<div class="margin-grid">${mh}${bh}</div>`;
+  return sum+`<div class="margin-detail"${$.marginDetailOpen?'':' hidden'}>${head}<div class="margin-grid">${mh}${bh}</div></div>`;
 }
+
+/* Estimate summary/details toggle — the box shows ONE compact line
+   (charges + required margin + coverage); the full breakup expands
+   behind the Details button and stays open across re-estimates. */
+$.marginDetailOpen=false;
+function estMarginToggleDetail(){
+  $.marginDetailOpen=!$.marginDetailOpen;
+  const box=document.getElementById('oMarginR'),det=box?.querySelector('.margin-detail'),btn=box?.querySelector('.margin-detail-btn');
+  if(det)det.hidden=!$.marginDetailOpen;
+  if(btn)btn.textContent=$.marginDetailOpen?'Hide details ⌃':'Details ⌄';
+}
+window.estMarginToggleDetail=estMarginToggleDetail;
+
+/* ================= Order ticket: AUTO margin & charges =================
+   otAuto() is wired to every ticket input — qty/price/trigger typing,
+   type/product/validity/AMO change, side toggle, instrument pick and
+   panel open. It debounces 700 ms, then runs estMargin({auto:true}),
+   which shows silent in-box notes instead of toasting on incomplete
+   tickets (you are mid-typing, not asking). The ↻ button keeps the
+   explicit, toasting call. Retries itself if an estimate is already
+   in flight so the last edit always wins. */
+$.otAutoT=null;
+function otEstNote(html){const b=document.getElementById('oMarginR');if(b)b.innerHTML=html;}
+function otAuto(){
+  if(!$.tok)return;                                   /* no live session — nothing to fetch */
+  const panel=document.getElementById('orderTicket');
+  if(!panel||panel.hidden)return;                     /* ticket closed — skip */
+  clearTimeout($.otAutoT);
+  $.otAutoT=setTimeout(()=>{
+    if($.marginBusy){otAuto();return;}                /* estimate in flight — retry when it lands */
+    estMargin({auto:true});
+  },700);
+}
+window.otAuto=otAuto;
 
 function qO(k,s,side){
   const meta=normalizeInstrument(($.wl||[]).find(w=>w.k===k)||{k,s,n:s,x:k.split('_')[0]})||{k,s,lot:1,minimumLot:1,tick:.05},inp=document.querySelector('#dO1 input');if(inp)inp.value=meta.s;$.ddSel.dO1=meta;applyInstrumentDefaults('dO1',meta);setS(side);nav('orders');showQuickPanel('orderTicket','orderTicketBtn');
@@ -3482,23 +3788,30 @@ async function sqO(t,pr,q){
 
 async function crG(){
   const sel=gDD('dG1');if(!sel)return ts('Select an instrument from the dropdown','e');
-  const qtyRaw=String(document.getElementById('gQt')?.value||'').trim();
-  const qty=parseInt(qtyRaw,10);
   const trigger=Number(document.getElementById('gTr')?.value||0);
   const lot=Math.max(1,Math.round(Number(sel.minimumLot||sel.lot||1))||1);
   const tick=Number(sel.tick)||.05;
   const grp=instrumentGroup(sel),isDerivative=grp==='FO'||grp==='CURR'||grp==='COMM';
-  /* Equity GTT → CNC (D); F&O / currency / commodity → NRML-style intraday (I). */
-  const product=isDerivative?'I':'D';
-  if(!Number.isInteger(qty)||qty<=0||String(qty)!==String(parseFloat(qtyRaw)))return ts('Quantity must be a positive whole number','e');
-  if(qty%lot!==0)return ts(`Quantity must be a multiple of lot size ${lot}`,'e');
+  const side=String(document.getElementById('gSd')?.value||'BUY');
+  /* Equity GTT → CNC (D); F&O / currency / commodity FUTURES → intraday (I).
+     OPTION BUYs are forced to NRML-style (D): Upstox rejects MIS (I) on
+     buying options — the same rule the order ticket's F&O hint documents —
+     which is how a triggered crude-oil CE GTT ended as a rejected child
+     order (2026-09-18: "Something went wrong… please contact us"). */
+  const product=(isDerivative&&!(side==='BUY'&&instrumentIsOption(sel)))?'I':'D';
+  const isMcx=/^MCX/i.test(String(sel.k||''));
+  /* QTY ↔ LOTS switch — GTT quantity follows the same broker semantics as
+     regular orders (units NSE/BSE/CDS, lots MCX); see qtyParts. */
+  const qp=qtyParts('dG1');
+  if(!qp.ok)return ts(qp.msg,'e');
+  const qty=qp.qty;
+  const qtyTxt=qp.isMcx?`${qty} lot${qty===1?'':'s'} (= ${qp.units} units)`:(qp.mode==='lots'?`${qp.lots} lot${qp.lots===1?'':'s'} (= ${qp.units} units)`:String(qty));
   if(sel.freeze&&qty>sel.freeze)return ts(`Quantity exceeds freeze limit ${sel.freeze}`,'e');
   if(!Number.isFinite(trigger)||trigger<=0)return ts('Enter a valid trigger price','e');
   if(!priceOnTick(trigger,tick))return ts(`Trigger must follow tick size ₹${tick}`,'e');
   /* AUDIT-API (2026-09-10): bracket GTT — optional TARGET + STOPLOSS legs
      (docs: /v3/order/gtt/place, type MULTIPLE, TARGET/STOPLOSS trigger_type IMMEDIATE,
-     optional trailing_gap on the STOPLOSS leg). */
-  const side=String(document.getElementById('gSd')?.value||'BUY');
+     optional trailing_gap on the STOPLOSS leg). side read above (product logic). */
   const target=Number(document.getElementById('gTg')?.value||0);
   const slp=Number(document.getElementById('gSl')?.value||0);
   const tsl=Number(document.getElementById('gTsl')?.value||0);
@@ -3512,11 +3825,74 @@ async function crG(){
     if(tsl){
       if(tsl<=0)return ts('Trailing gap must be positive','e');
       if(!priceOnTick(tsl,tick))return ts(`Trailing gap must follow tick size ₹${tick}`,'e');
-      rules[2]={strategy:'STOPLOSS',trigger_type:'IMMEDIATE',trigger_price:slp,trailing_gap:tsl,market_protection:-1};
-    }else rules[2]={strategy:'STOPLOSS',trigger_type:'IMMEDIATE',trigger_price:slp,market_protection:-1};
-    rules.splice(1,0,{strategy:'TARGET',trigger_type:'IMMEDIATE',trigger_price:target,market_protection:-1});
+    }
+    /* BUG (found 2026-09-18, GTT doc-conformance audit): assigning rules[2]
+       on the 1-element [ENTRY] array left a SPARSE HOLE at index 1; the
+       splice(1,0,TARGET) filled that hole but the array still serialized as
+       [ENTRY,TARGET,null,STOPLOSS] — a null rule the broker rejects. Build
+       the legs densely (ENTRY, TARGET, STOPLOSS) instead. */
+    const slRule={strategy:'STOPLOSS',trigger_type:'IMMEDIATE',trigger_price:slp,market_protection:-1};
+    if(tsl>0)slRule.trailing_gap=tsl;
+    rules.splice(1,0,{strategy:'TARGET',trigger_type:'IMMEDIATE',trigger_price:target,market_protection:-1},slRule);
     gttType='MULTIPLE';
   }
+  /* 2026-09-18: the broker API rejected a crude-oil CE GTT with its generic
+     "Something went wrong" EVEN on the correct NRML product — the GTT picker
+     is NSE/BSE-only now (instrumentAllowed enforces cfg.exchanges), but an
+     older pick or prefill can still carry an MCX instrument: make the risk
+     explicit before the request. */
+  if(/^MCX/i.test(String(sel.k||''))||instrumentGroup(sel)==='COMM'){
+    if(!confirm('Commodity (MCX) GTT warning: the broker API has rejected MCX GTTs with a generic "Something went wrong" error (observed 2026-09-18 on a crude-oil CE, even with the NRML product). The Upstox app may still accept them. Place anyway?'))return;
+  }
+  /* Upstox GTT policy: the ENTRY trigger must sit at least 0.25% away from
+     LTP — closer triggers come back as the same generic broker error. Pre-
+     check when a live price is available (IMMEDIATE sends at once, so the
+     rule doesn't apply); on LTP failure, let the broker decide. */
+  const tt=String(document.getElementById('gTt')?.value||'ABOVE');
+  let ltpTxt='';
+  /* LTP is needed for the ENTRY checks (0.25% distance + far-trigger — non-
+     IMMEDIATE only) AND for the trailing-gap floor, which applies to the
+     STOPLOSS leg whatever the entry type. */
+  if(tt!=='IMMEDIATE'||(tsl>0&&slp>0)){
+    try{
+      const q=await upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(sel.k)}`});
+      const ltp=Number(Object.values(q.data||{})[0]?.last_price)||0;
+      if(ltp>0){
+        if(tt!=='IMMEDIATE'){
+          ltpTxt=` (LTP ₹${ltp})`;
+          if(Math.abs(trigger-ltp)<ltp*0.0025)
+            return ts(`Trigger ₹${trigger} is within 0.25% of LTP ₹${ltp} — Upstox requires the trigger at least ₹${(ltp*0.0025).toFixed(2)} away (use ≤ ₹${(ltp-ltp*0.0025).toFixed(2)} or ≥ ₹${(ltp+ltp*0.0025).toFixed(2)})`,'e');
+          /* Classic foot-gun (2026-09-18: a NIFTY CE GTT with an index-style
+             trigger came back as the broker's generic error): GTT triggers
+             track THIS instrument's price — for an option that's the PREMIUM,
+             not the index/future. A trigger 3x+ away from the LTP gets an
+             explicit confirm before the request. */
+          if(trigger>=ltp*3||trigger<=ltp/3){
+            if(!confirm(`Your trigger ₹${trigger} is far from this instrument's LTP ₹${ltp}. GTT triggers track THIS instrument's price — for an option that's the premium, NOT the index or future. Place anyway?`))return;
+          }
+        }
+        /* Doc floor (place-gtt-order, rules[].trailing_gap): "the minimum
+           value for trailing gap is 10% of difference between LTP and stop
+           loss trigger price" — smaller gaps are refused broker-side, so
+           pre-check with the live price instead of eating the rejection. */
+        if(tsl>0&&slp>0){
+          const gapMin=0.10*Math.abs(ltp-slp);
+          if(tsl<gapMin)
+            return ts(`Trailing gap ₹${tsl} is below the broker minimum — 10% of |LTP ₹${ltp} − SL ₹${slp}| = ₹${gapMin.toFixed(2)}. Increase the gap or clear it.`,'e');
+        }
+      }
+    }catch(e){/* LTP unavailable — the broker will validate */}
+  }
+  /* README §8 convention: every trading action is confirm()-gated — GTT place
+     was the one exception; gate it too (echoes side, qty, trigger, product).
+     After hours (2026-09-18): GTT placement is broker-side and works off-hours
+     (no exchange order until the trigger fires), but IMMEDIATE sends the child
+     LIMIT order to the exchange straight away — which off-hours can be
+     rejected. Say so up front instead of eating the rejection. */
+  const afterTxt=marketPhaseFor(sel)==='open'?'':(tt==='IMMEDIATE'
+    ?' · after hours: IMMEDIATE sends the child order NOW — it can be rejected until the next session; ABOVE/BELOW only arm the trigger'
+    :' · after hours: stored now, armed during market hours');
+  if(!confirm(`GTT ${side} ${qtyTxt} ${sel.s||sel.k} · trigger ${tt} ₹${trigger}${ltpTxt} · product ${product}${gttType==='MULTIPLE'?' · bracket TARGET+STOPLOSS':''}${afterTxt}?`))return;
   if($.gttBusy)return;$.gttBusy=true;
   try{
     await upstoxFetch(END.GTT_PLACE,{method:'POST',body:{
@@ -3524,7 +3900,27 @@ async function crG(){
       transaction_type:side,rules
     }});
     ts(`GTT created (${gttType==='MULTIPLE'?`bracket ENTRY+TARGET+STOPLOSS, ${product}`:product})`,'s');proInvalidate('/order/gtt');ldG();
-  }catch(e){ts('GTT: '+e.message,'e');}
+  }catch(e){
+    /* The broker's generic GTT error ("Something went wrong… please contact
+       us", UDAPI100500) carries no cause. With trigger_type IMMEDIATE the
+       broker may have already placed — and the exchange rejected — the child
+       order; its status_message holds the REAL reason. Pull a fresh book and
+       surface that instead of guessing. */
+    const m=String(e.message||''),generic=/something went wrong|please contact us|try again/i.test(m);
+    let hint='';
+    if(generic){
+      try{
+        const d=await upstoxFetch(END.ORDER_BOOK,{_force:true});
+        const tsOf=o=>new Date(o.order_timestamp||o.order_update_timestamp||0).getTime()||0;
+        const cand=(d.data||[]).filter(o=>String(o.instrument_token||o.instrument_key||'')===String(sel.k)
+          &&/reject/i.test(String(o.status||''))&&o.status_message&&tsOf(o)>=Date.now()-180000)
+          .sort((a,b)=>tsOf(b)-tsOf(a))[0];
+        if(cand)hint=`\nThe exchange rejected the order: "${cand.status_message}"`;
+      }catch(_e){}
+      if(!hint)hint='\nCommon causes: Intraday product on an option BUY (this app now uses NRML for those), trigger within 0.25% of LTP, trigger outside the contract\'s execution range, or the segment not supporting API GTTs (e.g. MCX commodities). Nothing was placed.';
+    }
+    ts('GTT: '+m+hint,'e');
+  }
   finally{$.gttBusy=false;}
 }
 
@@ -4650,7 +5046,7 @@ function toggleQuickPanel(id,button,force){
   const panel=document.getElementById(id);if(!panel)return;const show=force===undefined?panel.hidden:!!force;panel.hidden=!show;
   const btn=button||document.getElementById(id==='orderTicket'?'orderTicketBtn':'gttTicketBtn');
   if(btn){btn.classList.toggle('bo',show);btn.classList.toggle('bp',!show);btn.textContent=show?'− Close':id==='orderTicket'?'＋ New order':'＋ Create GTT';btn.setAttribute('aria-expanded',String(show));}
-  if(show){if(id==='orderTicket')tPF();setTimeout(()=>panel.querySelector('input')?.focus(),40);}
+  if(show){if(id==='orderTicket'){tPF();amoSyncSelect();otAuto();/* prefilled ticket → sync AMO to the session + estimate right away */}setTimeout(()=>panel.querySelector('input')?.focus(),40);}
 }
 function showQuickPanel(id,buttonId){const panel=document.getElementById(id);if(panel?.hidden)toggleQuickPanel(id,document.getElementById(buttonId),true);}
 
@@ -5019,7 +5415,7 @@ async function ocLegToOrder(key, side, strike){
   const openTicket=(picked,note,kind)=>{
     $.ddSel.dO1=picked;
     const inp=document.querySelector('#dO1 input');if(inp)inp.value=picked.s;
-    try{applyInstrumentDefaults('dO1',picked);}catch(e){}
+    try{applyInstrumentDefaults('dO1',picked,{quiet:true});}catch(e){}
     setS('BUY');
     nav('orders');showQuickPanel('orderTicket','orderTicketBtn');
     ts(note,kind);
