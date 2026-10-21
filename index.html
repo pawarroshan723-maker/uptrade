@@ -1818,6 +1818,11 @@ function isAuthFailure(e){
      session yet, which is not the same as a session having been revoked. */
   if(/no access token/i.test(m)) return false;
   if(Number(e?.status)===401) return true;
+  /* A real HTTP error (400/403/404/422/5xx) that is NOT a 401 is an API-level rejection
+     ("GTT/order has expired", "invalid expiry" …). Only an explicit token/session phrase
+     may end the session; the loose `expired` arm applies to status-less errors (WS) and 200+error bodies. */
+  const st=Number(e?.status);
+  if(Number.isFinite(st)&&st>=400&&!/invalid\s+(access\s+)?token|token\s+(has\s+)?(expired|invalid|revoked)|session\s+(has\s+)?expired|unauthori[sz]ed|access\s+token/i.test(m)) return false;
   if(!AUTH_FAIL_RE.test(m)) return false;
   /* Guard the loose `expired` arm: "contract has expired" and "invalid expiry"
      are instrument errors, not session errors. Any token/session/login word in
@@ -2033,7 +2038,7 @@ function proBusyWatchdog(){
 setInterval(proBusyWatchdog,5000);
 async function upstoxFetch(ep,options={}){
   if(!$.tok&&!$.atok) throw new Error('No access token — log in first');
-  const method=String(options.method||'GET').toUpperCase(),force=!!options._force,fast=!!options._fast,key=`${method}|${ep.base||API_BASE}${ep.path}${options.query||''}`,ttl=method==='GET'?proTTL(ep):0,now=Date.now(),cached=PRO_HUB.cache.get(key);if(!force&&ttl&&cached&&now-cached.at<ttl){PRO_HUB.hits++;proHubStatus();return cached.data;}if(!force&&method==='GET'&&PRO_HUB.inflight.has(key)){PRO_HUB.hits++;return PRO_HUB.inflight.get(key);}const maxAttempts=fast?1:3;const task=proSchedule(async()=>{let error;for(let attempt=0;attempt<maxAttempts;attempt++){proHubProgress();try{PRO_HUB.requests++;const data=await rawUpstoxFetch(ep,options);PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;if(ttl&&$.tok)PRO_HUB.cache.set(key,{at:Date.now(),data});if(method!=='GET'&&!options._readonly)proInvalidate();proHubStatus();return data;}catch(e){error=e;const retry=/429|network|cors|http 5|rate|too many|timeout/i.test(e.message);if(!retry||attempt===maxAttempts-1)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)+Math.random()*180));}}/* AUDIT-C3: REST 401 / rejected-token handling — demote to the staged
+  const method=String(options.method||'GET').toUpperCase(),force=!!options._force,fast=!!options._fast,key=`${method}|${ep.base||API_BASE}${ep.path}${options.query||''}`,ttl=method==='GET'?proTTL(ep):0,now=Date.now(),cached=PRO_HUB.cache.get(key);if(!force&&ttl&&cached&&now-cached.at<ttl){PRO_HUB.hits++;proHubStatus();return cached.data;}if(!force&&method==='GET'&&PRO_HUB.inflight.has(key)){PRO_HUB.hits++;return PRO_HUB.inflight.get(key);}const maxAttempts=fast?1:3;const task=proSchedule(async()=>{let error;for(let attempt=0;attempt<maxAttempts;attempt++){proHubProgress();try{PRO_HUB.requests++;const data=await rawUpstoxFetch(ep,options);PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;if(ttl&&$.tok)PRO_HUB.cache.set(key,{at:Date.now(),data});if(method!=='GET'&&!options._readonly)proInvalidate();proHubStatus();return data;}catch(e){error=e;const isRead=method==='GET'||method==='HEAD'||!!options._retrySafe;const retry=isRead?/429|network|cors|http 5|rate.?limit|too many|timeout/i.test(e.message):(e.status===429);if(!retry||attempt===maxAttempts-1){if(!isRead&&/^(Timeout after|Network\/CORS error)/.test(e.message||''))e.message+=' — the request may already have reached Upstox. Check the Order Book / GTT list before retrying.';break;}await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)+Math.random()*180));}}/* AUDIT-C3: REST 401 / rejected-token handling — demote to the staged
    Analytics token if there is one, otherwise force a "session expired"
    logout. Market-data paths are then retried once on the Analytics token. */
 const shift=restAuthShift(error);
@@ -2875,7 +2880,8 @@ async function doMd(){
   const trigger=Number(document.getElementById('mTP')?.value||0);
   const validity=document.getElementById('mV')?.value||'DAY';
   const meta=$.oM?.[oid]||{};
-  const lot=Math.max(1,toNum(meta.lot_size||meta.lot||meta.minimumLot,1));
+  const isMcxOrd=/^MCX_/i.test(String(meta.instrument_key||meta.instrument_token||''));/* MCX qty is counted in LOTS (see plO) */
+  const lot=isMcxOrd?1:Math.max(1,toNum(meta.lot_size||meta.lot||meta.minimumLot,1));
   const tick=toNum(meta.tick_size||meta.tick,.05)||.05;
   if(!Number.isInteger(qty)||qty<=0)return ts('Enter a valid positive quantity to modify','e');
   if(qty%lot!==0)return ts(`Quantity must be a multiple of lot size ${lot}`,'e');
@@ -3646,7 +3652,7 @@ async function estMargin(opts){
        failing never hides the other's answer. */
     const bq=new URLSearchParams({instrument_token:sel.k,quantity:String(qty),product,transaction_type:side,price:String(price)});
     const [m,b,f]=await Promise.allSettled([
-      upstoxFetch(END.MARGIN,{method:'POST',_readonly:true,body:{instruments:[{instrument_key:sel.k,quantity:qty,product,transaction_type:side,price}]}}),
+      upstoxFetch(END.MARGIN,{method:'POST',_readonly:true,_retrySafe:true,body:{instruments:[{instrument_key:sel.k,quantity:qty,product,transaction_type:side,price}]}}),
       upstoxFetch(END.BROKERAGE,{query:'?'+bq.toString()}),
       fetchFundsCompat()
     ]);
@@ -3768,7 +3774,8 @@ async function sqO(t,pr,q){
   const side=q>0?'SELL':'BUY';
   const product=String(pr||'D');
   const meta=($.pos||[]).find(p=>(p.instrument_key||p.instrument_token)===t)||{};
-  const freeze=toNum(meta.freeze_quantity||meta.freeze||0);
+  const _mk=(meta.freeze_quantity||meta.freeze)?null:($.instrumentMaster||[]).find(x=>x.k===t);
+  const freeze=toNum(meta.freeze_quantity||meta.freeze||(_mk&&!/^MCX_/i.test(t)?_mk.freeze:0)||0);
   const willSlice=freeze>0&&qty>freeze;
   const sym=symbolOf(meta)||t;
   if(!confirm(`EXIT ${side} ${qty} ${sym} (${product} MARKET)${willSlice?`\nQuantity exceeds freeze ${freeze} — will slice.`:''}\nThis cannot be undone.`))return;
@@ -3972,7 +3979,8 @@ function rnW(){
   else wlPatchRows(c,view);
   wlUpdCount();wlgRenderTabs();
 }
-function wlChgPct(q){const last=toNum(q&&q.last_price,NaN),cp=toNum(q&&q.cp,NaN);return Number.isFinite(last)&&Number.isFinite(cp)&&cp? (last-cp)/cp*100 : NaN;}
+/* $.lq rows store last_price + net_change (never `cp`), so derive the previous close from them — reading q.cp alone left the Chg% column blank and the Chg% sort a no-op. */
+function wlChgPct(q){const last=toNum(q&&q.last_price,NaN);let cp=toNum(q&&q.cp,NaN);if(!Number.isFinite(cp)&&q&&q.net_change!=null&&q.net_change!==''){const ch=Number(q.net_change);if(Number.isFinite(ch))cp=last-ch;}return Number.isFinite(last)&&Number.isFinite(cp)&&cp? (last-cp)/cp*100 : NaN;}
 function wlOrdered(){
   const wl=$.wl||[],f=String($.wFilter||'').trim().toUpperCase();
   let list=f?wl.filter(w=>String((w.s||'')+' '+(w.n||'')+' '+(w.x||'')+' '+(w.segment||'')+' '+(w.type||'')).toUpperCase().includes(f)):wl.slice();
@@ -3980,7 +3988,7 @@ function wlOrdered(){
   if(s==='sym')list=list.slice().sort((a,b)=>String(a.s).localeCompare(String(b.s)));
   else if(s==='last')list=list.slice().sort((a,b)=>toNum($.lq[b.k]?.last_price)-toNum($.lq[a.k]?.last_price));
   else if(s==='chg')list=list.slice().sort((a,b)=>toNum($.lq[b.k]?.net_change)-toNum($.lq[a.k]?.net_change));
-  else if(s==='chgPct')list=list.slice().sort((a,b)=>wlChgPct($.lq[b.k])-wlChgPct($.lq[a.k]));
+  else if(s==='chgPct')list=list.slice().sort((a,b)=>{const pa=wlChgPct($.lq[a.k]),pb=wlChgPct($.lq[b.k]),fa=Number.isFinite(pa)?pa:-Infinity,fb=Number.isFinite(pb)?pb:-Infinity;return fb===fa?0:fb-fa;});
   return list;
 }
 function wlRowHtml(w){
@@ -4014,7 +4022,7 @@ async function ldWQ(){
   if(!$.tok&&!$.atok)return;
   $.wl=sanitizeWatchlist($.wl,{fallback:false,save:true});if(!$.wl.length){rnW();return;}const keys=$.wl.map(w=>w.k).filter(validInstrumentKey),apply=data=>Object.values(data||{}).forEach(v=>{const key=v.instrument_token;if(!validInstrumentKey(key))return;const last=toNum(v.last_price,NaN),cp=toNum(v.cp,NaN);$.lq[key]={...$.lq[key],last_price:last,net_change:Number.isFinite(last)&&Number.isFinite(cp)?last-cp:toNum($.lq[key]?.net_change)};});
   try{const d=await upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(keys.join(','))}`});apply(d.data);rnW();}
-  catch(e){if(!/invalid|instrument_key|symbol/i.test(e.message)){ts('Watchlist quotes: '+e.message,'w');return;}const results=await Promise.allSettled(keys.map(key=>upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(key)}`,_force:true}))),invalid=[];results.forEach((r,i)=>{if(r.status==='fulfilled')apply(r.value.data);else if(/invalid|instrument_key|symbol/i.test(r.reason?.message||''))invalid.push(keys[i]);});if(invalid.length){$.wl=$.wl.filter(w=>!invalid.includes(w.k));invalid.forEach(k=>delete $.lq[k]);persistWatchlist();ts(`Removed ${invalid.length} invalid or expired watchlist item${invalid.length>1?'s':''}`,'w');}rnW();}
+  catch(e){if(isAuthFailure(e)||!/invalid|instrument_key|symbol/i.test(e.message)){ts('Watchlist quotes: '+e.message,'w');return;}const results=await Promise.allSettled(keys.map(key=>upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(key)}`,_force:true}))),invalid=[];results.forEach((r,i)=>{if(r.status==='fulfilled')apply(r.value.data);else if(!isAuthFailure(r.reason)&&/invalid|instrument_key|symbol/i.test(r.reason?.message||''))invalid.push(keys[i]);});if(invalid.length){$.wl=$.wl.filter(w=>!invalid.includes(w.k));invalid.forEach(k=>delete $.lq[k]);persistWatchlist();ts(`Removed ${invalid.length} invalid or expired watchlist item${invalid.length>1?'s':''}`,'w');}rnW();}
 }
 
 
@@ -4062,7 +4070,7 @@ async function wsC(internal=false){
     const ws=new WebSocket(url);ws.binaryType='arraybuffer';$.ws=ws;$.wsConnecting=false;upWS(0);if($.chartLiveEnabled)chartSetLiveState('connecting','Connecting');
     ws.onopen=()=>{if($.ws!==ws)return;$.wsReconnectAttempts=0;$.wsAuthFailStreak=0;$.wsLastMsgTs=Date.now();$.wsOpenedAt=Date.now();upWS(1);wsSend('sub',chartSharedKeys(),'full');if(OC.fallback){const t2=document.getElementById('ocLiveTxt');if(t2)t2.textContent=(document.getElementById('ocMode')?.value==='full_d30')?'Main WS fallback • depth 5':'Main WS fallback';if(OC.keys&&OC.keys.length){const m=OC.fallbackMode||(((document.getElementById('ocMode')?.value||'full')==='full_d30')?'full':(document.getElementById('ocMode')?.value||'full'));OC.fallbackMode=m;wsSend('sub',OC.keys,m);}}if($.chartLiveEnabled)chartSetLiveState('on','Live • waiting');/* Reconnect gap-fill: an outage leaves a hole in live candles — backfill it immediately instead of waiting for the 5–15 min periodic reconcile. Revive a parked portfolio stream at the same time. */try{if($.chartLiveEnabled&&$.cKey)chartReconcileIntraday();}catch(e){}try{if(!$.pws||$.pws.readyState>1){$.pwsAttempts=0;connectPortfolioStream();}}catch(e){}};
     ws.onmessage=async ev=>{if($.ws!==ws)return;$.wsLastMsgTs=Date.now();try{const ab=ev.data instanceof Blob?await ev.data.arrayBuffer():ev.data;if(!(ab instanceof ArrayBuffer))return;const obj=OC.Feed.decode(new Uint8Array(ab));watchFeedObject(obj);if(OC.fallback&&typeof ocProcessFeed==='function')ocProcessFeed(obj);}catch(e){console.warn('Shared feed decode',e);}};
-    ws.onclose=ev=>{if($.ws!==ws)return;$.ws=null;upWS(0);if(typeof wsLog==='function')wsLog('market','closed',ev);if($.chartLiveEnabled)chartSetLiveState('error','Reconnecting');/* The header index strip, inspector and OC fallback all ride this socket — reconnect whenever a session is active. */if(!$.tok)return;if($.wsOpenedAt&&Date.now()-$.wsOpenedAt>60000)$.wsReconnectAttempts=0;$.wsOpenedAt=0;const attempt=($.wsReconnectAttempts||0)+1;$.wsReconnectAttempts=attempt;const delay=Math.min(30000,1500*Math.pow(2,Math.min(attempt,4)));$.wsReconnectTimer=setTimeout(()=>wsC(true),delay);if(typeof wsKickAll==='function')wsKickAll('main closed'+(ev&&ev.code?' code='+ev.code:''));};
+    ws.onclose=ev=>{if($.ws!==ws)return;$.ws=null;upWS(0);if(typeof wsLog==='function')wsLog('market','closed',ev);if($.chartLiveEnabled)chartSetLiveState('error','Reconnecting');/* The header index strip, inspector and OC fallback all ride this socket — reconnect whenever a session is active (daily OR analytics token). */if(!$.tok&&!$.atok)return;if($.wsOpenedAt&&Date.now()-$.wsOpenedAt>60000)$.wsReconnectAttempts=0;$.wsOpenedAt=0;const attempt=($.wsReconnectAttempts||0)+1;$.wsReconnectAttempts=attempt;const delay=Math.min(30000,1500*Math.pow(2,Math.min(attempt,4)));$.wsReconnectTimer=setTimeout(()=>wsC(true),delay);if(typeof wsKickAll==='function')wsKickAll('main closed'+(ev&&ev.code?' code='+ev.code:''));};
     ws.onerror=()=>{if($.ws===ws){if($.chartLiveEnabled)chartSetLiveState('error','Feed error');if(!internal)ts('Market WebSocket error','e');}};
   }catch(e){$.wsConnecting=false;upWS(0);if($.chartLiveEnabled)chartSetLiveState('error','Feed unavailable');if(!internal)ts('Market WebSocket: '+e.message,'e');else console.warn('Shared WebSocket',e.message);if(typeof wsLog==='function')wsLog('market','connect failed',e.message);
     if(isAuthFailure(e)){$.wsAuthFailStreak=($.wsAuthFailStreak||0)+1;/* TOKEN-SHIFT: dead daily token + staged Analytics token → demote, retries ride the 1-yr RO token */if($.atok&&$.tok){$.tok='';sessionStorage.removeItem('u_tok');$.wsAuthFailStreak=0;$.ro=true;ts('Daily token expired — market feed shifted to Analytics token (read-only)','w');}else if($.wsAuthFailStreak===5)ts('Market feed stopped — access token looks expired. Log in again.','e');}else $.wsAuthFailStreak=0;
@@ -4317,10 +4325,10 @@ function algoBacktest(candles,ind,strategy,direction,settings){
 }
 
 function algoISTDateKey(value){const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(value)),get=k=>parts.find(x=>x.type===k)?.value||'';return `${get('year')}-${get('month')}-${get('day')}`;}
-function algoOnlyClosedCandles(candles,unit,interval){
+function algoOnlyClosedCandles(candles,unit,interval,sessionCloseMin){
   const now=Date.now();if(unit==='minutes'||unit==='hours'){const duration=(unit==='minutes'?60000:3600000)*interval;return candles.filter(x=>x.t.getTime()+duration<=now-2000);}
   if(unit==='days'){
-    const today=algoISTDateKey(now),timeParts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)),hour=Number(timeParts.find(x=>x.type==='hour')?.value||0),minute=Number(timeParts.find(x=>x.type==='minute')?.value||0),marketClosed=hour*60+minute>=931;
+    const today=algoISTDateKey(now),timeParts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)),hour=Number(timeParts.find(x=>x.type==='hour')?.value||0),minute=Number(timeParts.find(x=>x.type==='minute')?.value||0),marketClosed=hour*60+minute>=(Number.isFinite(sessionCloseMin)?sessionCloseMin:931);   /* NSE/BSE 15:31 IST; MCX closes 23:30/23:55 so today's partial daily bar must not count as closed */
     return candles.filter(x=>{const key=algoISTDateKey(x.t);return key<today||(key===today&&marketClosed);});
   }
   return candles;
@@ -4415,17 +4423,17 @@ function evaluateTextSentiment(text=''){
       if(idx>0){
         const prev1=words[idx-1]||'',prev2=words[idx-2]||'';
         const isNegated=['not','no','never','denies','avoids','without','fails','failed','unable'].includes(prev1)||['fails to','failed to','unable to','no sign','denies any'].includes(prev2+' '+prev1);
-        if(isNegated) mult=type==='bull'?-0.8:0.8;
+        if(isNegated) mult=-0.8;   /* flips sign for both: v is + for bullish, − for bearish */
         else if(FINANCIAL_LEXICON.intensifiers[prev1]) mult=FINANCIAL_LEXICON.intensifiers[prev1];
       }
-      const finalWeight=(type==='bear'&&mult>0?v:Math.abs(v)*mult);
+      const finalWeight=v*mult;   /* old bearish branch ignored both negation and intensifiers */
       score+=finalWeight;matched.push({phrase:k,weight:finalWeight});
       maskedText=maskedText.replace(k,' '.repeat(k.length));
     }
   });
   let category='general';
   for(const [cat,kws] of Object.entries(FINANCIAL_LEXICON.catalysts)){
-    if(kws.some(k=>lower.includes(k))){category=cat;break;}
+    if(kws.some(k=>new RegExp('(^|[^a-z0-9])'+k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(s|es)?([^a-z0-9]|$)').test(lower))){category=cat;break;}   /* whole-word match: bare includes('ed') tagged almost every headline "regulatory" (1.5× impact) */
   }
   return{score,matched,category};
 }
@@ -4485,7 +4493,7 @@ async function runA(){
       upstoxFetchNews('instrument_keys', [sel.k], 1, 15)
     ]);
     if(candleRes.status==='rejected') throw candleRes.reason;
-    const raw=candleRes.value,all=(raw.data?.candles||[]).sort((a,b)=>new Date(a[0])-new Date(b[0])).map(c=>({t:new Date(c[0]),o:toNum(c[1]),h:toNum(c[2]),l:toNum(c[3]),c:toNum(c[4]),v:toNum(c[5])})),closed=algoOnlyClosedCandles(all,unit,interval),candles=closed.slice(-bars),minimum=strategy==='trend'?220:100;
+    const raw=candleRes.value,all=(raw.data?.candles||[]).sort((a,b)=>new Date(a[0])-new Date(b[0])).map(c=>({t:new Date(c[0]),o:toNum(c[1]),h:toNum(c[2]),l:toNum(c[3]),c:toNum(c[4]),v:toNum(c[5])})),closed=algoOnlyClosedCandles(all,unit,interval,(/^MCX_/i.test(String(sel?.k||''))||/^MCX_/i.test(String(sel?.segment||'')))?1436:undefined),candles=closed.slice(-bars),minimum=strategy==='trend'?220:100;
     const newsArticles=(newsRes.status==='fulfilled'&&newsRes.value?.data?.[sel.k])||[];
     const newsAnalysis=analyzeInstrumentNews(newsArticles);
     /* AUDIT FIX (algo): e.g. 15-minute candles cap at 1 month on the v3 API,
@@ -4603,9 +4611,9 @@ async function ldOC_WS(){
   ocStopPoll(true);                  /* poll mode and the live WS are exclusive */
   if(mcxSelected())return mcxLdOC(true);
   if(!$.tok&&!$.atok)return ts('Connect a token (daily or analytics) to go live','w');
-  const sel=gDD('dOC'),expiry=getSelectedExpiry();if(!sel)return ts('Select an index','e');if(!expiry)return ts('Load and select a valid expiry','e');const mode=document.getElementById('ocMode').value||'full';OC.underKey=sel.k;
+  const sel=gDD('dOC'),expiry=getSelectedExpiry();if(!sel)return ts('Select an index','e');if(!expiry)return ts('Load and select a valid expiry','e');const mode=document.getElementById('ocMode').value||'full';OC.underKey=sel.k;const request=(OC.chainSeq||0)+1;OC.chainSeq=request;const requestedKey=sel.k;/* stale-response guard, same as ldOC */
   const cols=getOCSelectedCols().length*2+1;document.getElementById('ocBody').innerHTML=`<tr><td colspan="${cols}" style="padding:20px"><div class="ld"><div class="sp"></div></div>Loading chain…</td></tr>`;
-  try{const d=await upstoxFetch(END.OPT_CHAIN,{query:`?instrument_key=${encodeURIComponent(sel.k)}&expiry_date=${encodeURIComponent(expiry)}`});const state=prepareOCChain(d.data,mode);const keys=[sel.k];OC.filtered.forEach(r=>{if(r.call_options?.instrument_key)keys.push(r.call_options.instrument_key);if(r.put_options?.instrument_key)keys.push(r.put_options.instrument_key);});OC.keys=[...new Set(keys)];if(mode==='full_d30'&&OC.keys.length>50){const byDist=OC.filtered.slice().sort((a,b)=>Math.abs(toNum(a.strike_price)-OC.atm)-Math.abs(toNum(b.strike_price)-OC.atm)),trimmed=[sel.k];for(const r of byDist){if(trimmed.length>=49)break;if(r.call_options?.instrument_key)trimmed.push(r.call_options.instrument_key);if(r.put_options?.instrument_key)trimmed.push(r.put_options.instrument_key);}OC.keys=[...new Set(trimmed)].slice(0,50);ts(`Depth 30 cap: streaming ${OC.keys.length} keys nearest ATM; outer strikes stay REST-only`,'w');}renderOCLiveTable(OC.filtered,state.atmPos,true);OC.wantLive=true;OC.wsAttempts=0;OC.liveMode={};OC.maxDepthSeen=0;OC.grantNotified=false;OC.grantTicks=0;clearTimeout(OC.reconnectTimer);OC.reconnectTimer=null;await ocConnectWS();}catch(e){ts('Live option chain: '+e.message,'e');ocEnableFallback('start failed: '+e.message);}
+  try{const d=await upstoxFetch(END.OPT_CHAIN,{query:`?instrument_key=${encodeURIComponent(sel.k)}&expiry_date=${encodeURIComponent(expiry)}`});if(request!==OC.chainSeq||OC.underKey!==requestedKey)return;const state=prepareOCChain(d.data,mode);const keys=[sel.k];OC.filtered.forEach(r=>{if(r.call_options?.instrument_key)keys.push(r.call_options.instrument_key);if(r.put_options?.instrument_key)keys.push(r.put_options.instrument_key);});OC.keys=[...new Set(keys)];if(mode==='full_d30'&&OC.keys.length>50){const byDist=OC.filtered.slice().sort((a,b)=>Math.abs(toNum(a.strike_price)-OC.atm)-Math.abs(toNum(b.strike_price)-OC.atm)),trimmed=[sel.k];for(const r of byDist){if(trimmed.length>=49)break;if(r.call_options?.instrument_key)trimmed.push(r.call_options.instrument_key);if(r.put_options?.instrument_key)trimmed.push(r.put_options.instrument_key);}OC.keys=[...new Set(trimmed)].slice(0,50);ts(`Depth 30 cap: streaming ${OC.keys.length} keys nearest ATM; outer strikes stay REST-only`,'w');}renderOCLiveTable(OC.filtered,state.atmPos,true);OC.wantLive=true;OC.wsAttempts=0;OC.liveMode={};OC.maxDepthSeen=0;OC.grantNotified=false;OC.grantTicks=0;clearTimeout(OC.reconnectTimer);OC.reconnectTimer=null;await ocConnectWS();}catch(e){if(request!==OC.chainSeq||OC.underKey!==requestedKey)return;ts('Live option chain: '+e.message,'e');ocEnableFallback('start failed: '+e.message);}
 
 }
 
@@ -5023,7 +5031,7 @@ function renderProMarketPulse(){const box=document.getElementById('dMarketPulse'
 function renderProDashboard(freshOk=true){const pos=$.pos||[],hold=$.hld||[],orders=$.ords||[],risk=document.getElementById('dRisk'),holdBox=document.getElementById('dHoldPreview'),fresh=document.getElementById('dFresh'),state=document.getElementById('dRiskState');let gross=0,net=0;pos.forEach(p=>{const value=toNum(p.last_price)*toNum(p.quantity)*Math.max(1,toNum(p.multiplier,1));gross+=Math.abs(value);net+=value;});let portfolio=0,largest=0;hold.forEach(h=>{const value=toNum(h.last_price??h.close_price)*toNum(h.quantity);portfolio+=value;largest=Math.max(largest,value);});const concentration=portfolio?largest/portfolio*100:0,usedText=document.getElementById('dU')?.textContent||'0',availText=document.getElementById('dM')?.textContent||'0',used=toNum(usedText.replace(/[^0-9.-]/g,'')),avail=toNum(availText.replace(/[^0-9.-]/g,'')),marginRatio=used+avail?used/(used+avail)*100:0,riskScore=Math.min(100,marginRatio*.6+concentration*.4),riskLabel=riskScore>=70?'HIGH':riskScore>=40?'MODERATE':'LOW';if(state){state.textContent=riskLabel;state.className=riskScore>=70?'pn':riskScore>=40?'':'pp';}const posBox=document.getElementById('dTP'),orderBox=document.getElementById('dRO');if(posBox)posBox.innerHTML=pos.length?pos.slice().sort((a,b)=>Math.abs(toNum(b.pnl))-Math.abs(toNum(a.pnl))).slice(0,7).map(p=>`<div class="pro-dash-row"><b>${escapeHtml(symbolOf(p))}</b><span>${toNum(p.quantity)} @ ${fmtP(p.average_price)}</span><span class="${toNum(p.pnl)>=0?'pp':'pn'}">${fp(p.pnl)}</span></div>`).join(''):'<div class="emp"><div class="ed">No positions</div></div>';if(orderBox)orderBox.innerHTML=orders.length?orders.slice(0,7).map(o=>`<div class="pro-dash-row"><b>${escapeHtml(symbolOf(o))}</b><span class="${o.transaction_type==='BUY'?'pp':'pn'}">${escapeHtml(o.transaction_type||'—')} ${toNum(o.quantity)}</span><span>${escapeHtml(o.status||'—')}</span></div>`).join(''):'<div class="emp"><div class="ed">No orders</div></div>';if(risk)risk.innerHTML=`<div class="pro-risk-grid"><div class="pro-risk-item"><span>Gross exposure</span><b>${fm(gross)}</b></div><div class="pro-risk-item"><span>Net exposure</span><b>${fm(net)}</b></div><div class="pro-risk-item"><span>Portfolio value</span><b>${fm(portfolio)}</b></div><div class="pro-risk-item"><span>Concentration</span><b>${concentration.toFixed(1)}%</b></div></div><div class="pro-risk-meter"><i style="width:${riskScore.toFixed(0)}%"></i></div>`;if(holdBox)holdBox.innerHTML=hold.length?hold.slice().sort((a,b)=>toNum(b.last_price)*toNum(b.quantity)-toNum(a.last_price)*toNum(a.quantity)).slice(0,6).map(h=>{const value=toNum(h.last_price??h.close_price)*toNum(h.quantity),pnl=value-toNum(h.average_price)*toNum(h.quantity);return `<div class="pro-dash-row"><b>${escapeHtml(symbolOf(h))}</b><span>${fm(value)}</span><span class="${pnl>=0?'pp':'pn'}">${pnl>=0?'+':''}${fm(pnl)}</span></div>`;}).join(''):'<div class="emp"><div class="ed">No holdings</div></div>';if(fresh)fresh.textContent=freshOk?`Synced ${new Date().toLocaleTimeString()}`:'⚠ Sync failed — showing last known data';renderProMarketPulse();const sync=document.getElementById('psSync');if(sync)sync.textContent=freshOk?`Last sync ${new Date().toLocaleTimeString()}`:'Last sync failed';}
 function proRefreshCurrent(){proInvalidate();const page=document.querySelector('.pg.on')?.id?.replace('pg-','');({dash:ldD,orders:ldO,gtt:ldG,pos:ldP,hold:ldH,watch:ldWQ,funds:ldFn,pnl:ldPl,chart:ldCh,fund:()=>loadFundamentals(true),oc:ldOC})[page]?.();loadProMarkets(true);}
 function proSyncTick(){
-  if(document.hidden||!$.tok)return;
+  if(document.hidden||(!$.tok&&!$.atok))return;
   try{if(typeof proCheckIdle==='function'&&proCheckIdle()){const sync=document.getElementById('psSync');if(sync){const base=$.ws?.readyState===WebSocket.OPEN?`Live WS • REST ${PRO_HUB.lastSuccess?new Date(PRO_HUB.lastSuccess).toLocaleTimeString():'idle'}`:`REST sync ${PRO_HUB.lastSuccess?new Date(PRO_HUB.lastSuccess).toLocaleTimeString():'idle'}`;sync.textContent=`Idle • ${base} • polling paused`;}return;}}catch(e){}
   const now=Date.now(),page=document.querySelector('.pg.on')?.id?.replace('pg-','');$.proSyncAt=$.proSyncAt||{};const run=(name,ms,fn)=>{if(!$.proSyncAt[name]||now-$.proSyncAt[name]>=ms){$.proSyncAt[name]=now;Promise.resolve(fn()).catch(()=>{});}};run('markets',$.ws?.readyState===WebSocket.OPEN?300000:15000,loadProMarkets);if(page==='dash')run('dash',10000,ldD);if(page==='orders')run('orders',5000,ldO);if(page==='pos')run('pos',5000,ldP);if(page==='hold')run('hold',30000,ldH);if(page==='funds')run('funds',15000,ldFn);if(page==='gtt')run('gtt',15000,ldG);if(page==='watch')run('watch',8000,ldWQ);const sync=document.getElementById('psSync');if(sync)sync.textContent=$.ws?.readyState===WebSocket.OPEN?`Live WS • REST ${PRO_HUB.lastSuccess?new Date(PRO_HUB.lastSuccess).toLocaleTimeString():'idle'}`:`REST sync ${PRO_HUB.lastSuccess?new Date(PRO_HUB.lastSuccess).toLocaleTimeString():'idle'}`;}
 function proPortfolioStatus(on,text){const label=document.getElementById('psPortfolio'),dot=document.getElementById('psPortDot');if(label)label.textContent=text||(on?'Live':'Offline');if(dot)dot.className=`status-dot ${on?'on':''}`;if(typeof wsCountUpdate==='function')wsCountUpdate();}
@@ -6967,8 +6975,9 @@ async function pollTick(){
   }catch(e){
     P.failStreak++;
     const msg=String(e&&e.message||'');
-    if(P.src==='v2'&&/invalid|UDAPI|not found|400/i.test(msg)){P.src='greek';ts('Poll switched to option-greek quotes (v2 rejected this batch)','w');}
-    else if(/429|rate|too many/i.test(msg)&&P.interval<4000){P.interval+=1000;clearInterval(P.timer);P.timer=setInterval(pollTick,P.interval);ts(`Rate limited — poll slowed to ${P.interval/1000}s`,'w');}
+    const rateLimited=e?.status===429||/\b429\b|rate.?limit|too many/i.test(msg);   /* test 429 FIRST: its message carries a UDAPI code that the v2-rejected branch would otherwise swallow */
+    if(!rateLimited&&P.src==='v2'&&/invalid|UDAPI|not found|400/i.test(msg)){P.src='greek';ts('Poll switched to option-greek quotes (v2 rejected this batch)','w');}
+    else if(rateLimited&&P.interval<4000){P.interval+=1000;clearInterval(P.timer);P.timer=setInterval(pollTick,P.interval);ts(`Rate limited — poll slowed to ${P.interval/1000}s`,'w');}
     else if(P.failStreak>=5){ocStopPoll(true);ts('Polling stopped after repeated errors: '+msg,'e');}
   }finally{P.busy=false;}
 }
@@ -7171,12 +7180,14 @@ function rnT(rows){
 }
 /* Bulk cancel of THIS app's open orders — DELETE /v2/order/multi/cancel?tag=uptrade-web
    (docs: max 10 orders/call; 207 partial-success carries per-order errors[]). */
-async function cancelAllMine(){
+async function cancelAllMine(skipConfirm){
   if(!$.tok)return ts('Log in first','w');
   const open=($.ords||[]).filter(isOp);
   if(!open.length)return ts('No open orders to cancel','i');
-  if(!confirm(`Cancel ${open.length} open order(s) tagged uptrade-web?`))return;
-  if(!confirm('CONFIRM: this fires one bulk cancel for all of this app\'s open orders. Proceed?'))return;
+  if(!skipConfirm){
+  if(!confirm(`Cancel ${open.length} open order(s) tagged uptrade-web?`))return false;
+  if(!confirm('CONFIRM: this fires one bulk cancel for all of this app\'s open orders. Proceed?'))return false;
+  }
   try{
     const d=await upstoxFetch(END.ORDER_CANCEL_MULTI,{method:'DELETE',_force:true,query:'?tag='+encodeURIComponent('uptrade-web')});
     const s=d.summary||{},errs=d.errors||[];
@@ -7186,12 +7197,14 @@ async function cancelAllMine(){
 }
 /* Bulk square-off of THIS app's positions — POST /v2/order/positions/exit?tag=uptrade-web
    (docs: MARKET orders w/ MPP; 207 partial-success; tag filter = intraday positions only). */
-async function exitAllMine(){
+async function exitAllMine(skipConfirm){
   if(!$.tok)return ts('Log in first','w');
   const open=($.pos||[]).filter(p=>toNum(p.quantity)!==0);
   if(!open.length)return ts('No open positions to exit','i');
-  if(!confirm(`Square off ${open.length} open position(s) tagged uptrade-web with MARKET orders?`))return;
-  if(!confirm('CONFIRM: exit-all sends real market orders. Proceed?'))return;
+  if(!skipConfirm){
+  if(!confirm(`Square off ${open.length} open position(s) tagged uptrade-web with MARKET orders?`))return false;
+  if(!confirm('CONFIRM: exit-all sends real market orders. Proceed?'))return false;
+  }
   try{
     const d=await upstoxFetch(END.POSITIONS_EXIT,{method:'POST',_force:true,_readonly:true,query:'?tag='+encodeURIComponent('uptrade-web')});
     const s=d.summary||{},errs=d.errors||[];
@@ -7204,8 +7217,9 @@ async function panicExitAll(){
   if(!$.tok)return ts('Log in first','w');
   if(!confirm('🛑 PANIC — cancel ALL open orders tagged uptrade-web AND square off ALL my open positions with market orders?'))return;
   if(!confirm('This is the last confirmation. Execute panic exit?'))return;
-  await cancelAllMine();
-  await exitAllMine();
+  /* the two panic confirmations above already cover both steps — no further dialogs */
+  if(await cancelAllMine(true)===false)return;
+  await exitAllMine(true);
 }
 
 /* ================= SECTION 28: GTT modify · P&L charges · kill switch · market status (Tier-1, 2026-09-10) ================= */
@@ -7306,7 +7320,8 @@ async function ksSet(segment,action){
   try{
     const d=await upstoxFetch(END.KILL_SWITCH,{method:'POST',_force:true,body:[{segment,action}]});
     (Array.isArray(d.data)?d.data:[]).forEach(r=>{window._ksStates=window._ksStates||{};window._ksStates[r.segment]=!!r.kill_switch_enabled;});
-    ts(`Kill switch: ${segment} ${action==='DISABLE'?'disabled — orders cancelled, trading blocked':'enabled'}${window._ksStates[segment]?'':' (request may have failed — check status)'} · regenerate your token for it to take effect`,action==='DISABLE'?'w':'s');
+    const _ksNow=(window._ksStates||{})[segment],_ksWant=action==='DISABLE';/* kill_switch_enabled=true means the switch is ENGAGED (trading halted) — so DISABLE expects true, ENABLE expects false */
+    ts(`Kill switch: ${segment} ${action==='DISABLE'?'disabled — orders cancelled, trading blocked':'enabled'}${_ksNow===_ksWant?'':' (state not confirmed by Upstox — check status)'} · regenerate your token for it to take effect`,action==='DISABLE'?'w':'s');
     if(document.getElementById('utModalOv'))ksOpen();
   }catch(e){ts('Kill switch: '+e.message,'e');}
 }
