@@ -10,11 +10,13 @@ A **single-file live trading dashboard** for the [Upstox](https://upstox.com) br
 
 | File | What it is |
 |---|---|
-| `index.html` | **The entire application** (~720 KB, 6,948 lines): CSS, HTML, JavaScript, and the Upstox protobuf schema, all inline. |
+| `index.html` | **The entire application** (~765 KB, 7,528 lines): CSS, HTML, JavaScript, and the Upstox protobuf schema, all inline. |
 | `AUDIT.md` | Deep code audit: architecture map, security/correctness findings, re-verification results. |
-| `README.md` | This document — how the app and its one file work. |
+| `REVIEW.md` | Review log: every finding (B/W/N/L/A/R series) with symptom, root cause, fix and the assertion that guards it, plus the open list. |
+| `tests/` | The regression battery (9 suites, 243 assertions) — see §10. |
+| `package.json` | One dev dependency (`jsdom`) for the test harness. Nothing ships from it. |
 
-There is no `package.json`, no bundler, no server code. Upgrading = replacing the file.
+There is no bundler and no server code. Upgrading = replacing the HTML file.
 
 ---
 
@@ -322,8 +324,10 @@ node tests/run-all.js  # -> ALL SUITES GREEN
 | `core.js` | 24 | boot, token shift, navigation, trading guards, REST 401 demote-vs-logout |
 | `ottest.js` | 23 | order ticket v2 structure, auto-margin debounce/silent notes, manual-estimate toasts, no-token & closed-panel guards |
 | `gtttest.js` | 58 | GTT side-aware product (option BUY → NRML), picker exchange allow-list, MCX risk-confirm, 0.25% trigger pre-check, far-trigger guard, generic-failure diagnosis + error codes, MIS option-buy guard, MCX lots semantics, rejection reasons in history, instrumentIsOption, segment-aware market clock (NSE/CDS/MCX sessions), after-hours AMO gate (UDAPI100039/100074), MCX evening session stays live, GTT after-hours note, quantity auto-fill announced + reset on instrument change, trailing-gap 10% floor, dense bracket rules (no null hole) + doc shapes, QTY↔LOTS switch (conversion, broker-quantity on place/GTT, MCX units basis, sticky preference) |
+| `regress.js` | 29 | one block per REVIEW.md finding: token-shift routing, watchlist sanitiser, chart/OC guards, GTT payload, P&L paging |
+| `deepdive.js` | 50 | the deep-dive findings (see REVIEW.md): body-read abort budget, cache/token hygiene, logout reset, MCX US-DST close, GTT modify payload, stale-response guards, period-aligned chart buckets, per-segment session close, after-hours single exit |
 
-**164/164 green** as of 2026-09-18. `tests/helpers.js` boots the real `index.html`
+**243/243 green** as of 2026-10-28. `tests/helpers.js` boots the real `index.html`
 in jsdom with stubbed `fetch` / `WebSocket` / `IndexedDB`, so every suite
 exercises the shipped file rather than a copy of its logic.
 
