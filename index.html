@@ -1873,13 +1873,20 @@ async function rawUpstoxFetch(ep,{method='GET',body=null,query='',headersAdd={}}
     headers['Content-Type']='application/json';
     opts.body=JSON.stringify(body);
   }
-  let r;
-  try{ r=await fetch(url,opts); }
+  let r,raw;
+  /* AUDIT FIX (B5): the abort timer must cover the BODY read, not just the
+     headers. fetch() resolves as soon as the headers arrive; the old code
+     cleared the timer right there, so a stalled body left `await r.text()`
+     pending forever and the request hub's slot (max 5) stayed occupied —
+     five such stalls wedged every API call in the app until a reload. */
+  try{
+    r=await fetch(url,opts);
+    raw=await r.text();
+  }
   catch(e){
-    if(e.name==='AbortError') throw new Error(`Timeout after 15s: ${ep.path} — will retry`);
-    throw new Error(`Network/CORS error: ${e.message}`);
+    if(e?.name==='AbortError') throw new Error(`Timeout after 15s: ${ep.path} — will retry`);
+    throw new Error(`Network/CORS error: ${e?.message||e}`);
   }finally{ if(timeout) clearTimeout(timeout); }
-  const raw=await r.text();
   let d={};
   if(raw){ try{d=JSON.parse(raw);}catch{d={message:raw.slice(0,300)};} }
   if(!r.ok||d.status==='error'){
@@ -2038,19 +2045,19 @@ function proBusyWatchdog(){
 setInterval(proBusyWatchdog,5000);
 async function upstoxFetch(ep,options={}){
   if(!$.tok&&!$.atok) throw new Error('No access token — log in first');
-  const method=String(options.method||'GET').toUpperCase(),force=!!options._force,fast=!!options._fast,key=`${method}|${ep.base||API_BASE}${ep.path}${options.query||''}`,ttl=method==='GET'?proTTL(ep):0,now=Date.now(),cached=PRO_HUB.cache.get(key);if(!force&&ttl&&cached&&now-cached.at<ttl){PRO_HUB.hits++;proHubStatus();return cached.data;}if(!force&&method==='GET'&&PRO_HUB.inflight.has(key)){PRO_HUB.hits++;return PRO_HUB.inflight.get(key);}const maxAttempts=fast?1:3;const task=proSchedule(async()=>{let error;for(let attempt=0;attempt<maxAttempts;attempt++){proHubProgress();try{PRO_HUB.requests++;const data=await rawUpstoxFetch(ep,options);PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;if(ttl&&$.tok)PRO_HUB.cache.set(key,{at:Date.now(),data});if(method!=='GET'&&!options._readonly)proInvalidate();proHubStatus();return data;}catch(e){error=e;const isRead=method==='GET'||method==='HEAD'||!!options._retrySafe;const retry=isRead?/429|network|cors|http 5|rate.?limit|too many|timeout/i.test(e.message):(e.status===429);if(!retry||attempt===maxAttempts-1){if(!isRead&&/^(Timeout after|Network\/CORS error)/.test(e.message||''))e.message+=' — the request may already have reached Upstox. Check the Order Book / GTT list before retrying.';break;}await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)+Math.random()*180));}}/* AUDIT-C3: REST 401 / rejected-token handling — demote to the staged
+  const method=String(options.method||'GET').toUpperCase(),force=!!options._force,fast=!!options._fast,key=`${method}|${ep.base||API_BASE}${ep.path}${options.query||''}`,ttl=method==='GET'?proTTL(ep):0,now=Date.now(),cached=PRO_HUB.cache.get(key);if(!force&&ttl&&cached&&now-cached.at<ttl){PRO_HUB.hits++;proHubStatus();return cached.data;}if(!force&&method==='GET'&&PRO_HUB.inflight.has(key)){PRO_HUB.hits++;return PRO_HUB.inflight.get(key);}const maxAttempts=fast?1:3;const task=proSchedule(async()=>{let error;for(let attempt=0;attempt<maxAttempts;attempt++){proHubProgress();try{PRO_HUB.requests++;const data=await rawUpstoxFetch(ep,options);PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;if(ttl&&($.tok||$.atok))PRO_HUB.cache.set(key,{at:Date.now(),data});if(method!=='GET'&&!options._readonly)proInvalidate();proHubStatus();return data;}catch(e){error=e;const isRead=method==='GET'||method==='HEAD'||!!options._retrySafe;const retry=isRead?/429|network|cors|http 5|rate.?limit|too many|timeout/i.test(e.message):(e.status===429);if(!retry||attempt===maxAttempts-1){if(!isRead&&/^(Timeout after|Network\/CORS error)/.test(e.message||''))e.message+=' — the request may already have reached Upstox. Check the Order Book / GTT list before retrying.';break;}await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)+Math.random()*180));}}/* AUDIT-C3: REST 401 / rejected-token handling — demote to the staged
    Analytics token if there is one, otherwise force a "session expired"
    logout. Market-data paths are then retried once on the Analytics token. */
 const shift=restAuthShift(error);
 if(shift==='demote'&&isAtokEligible(ep,method)){
-  try{PRO_HUB.requests++;const data=await rawUpstoxFetch(ep,{...options,_force:true});PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;if(ttl&&$.tok)PRO_HUB.cache.set(key,{at:Date.now(),data});proHubStatus();return data;}catch(e2){error=e2;}
+  try{PRO_HUB.requests++;const data=await rawUpstoxFetch(ep,{...options,_force:true});PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;if(ttl&&($.tok||$.atok))PRO_HUB.cache.set(key,{at:Date.now(),data});proHubStatus();return data;}catch(e2){error=e2;}
 }
 if(!/no access token/i.test(error?.message||'')){PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');}throw error;});if(method==='GET')PRO_HUB.inflight.set(key,task);try{return await task;}finally{PRO_HUB.inflight.delete(key);}
 }
 
 async function apiHist(url){
   const bearer=$.tok||$.atok;
-  if(!bearer)throw new Error('No access token');const ttl=url.includes('/intraday/')?10000:120000,key=`HIST|${url}`,now=Date.now(),cached=PRO_HUB.cache.get(key);if(cached&&now-cached.at<ttl){PRO_HUB.hits++;proHubStatus();return cached.data;}if(PRO_HUB.inflight.has(key)){PRO_HUB.hits++;return PRO_HUB.inflight.get(key);}const task=proSchedule(async()=>{let error;for(let attempt=0;attempt<3;attempt++){proHubProgress();try{PRO_HUB.requests++;const ctrl=typeof AbortController!=='undefined'?new AbortController():null;const to=ctrl?setTimeout(()=>ctrl.abort(),15000):null;const r=await fetch(url,{headers:{'Authorization':`Bearer ${bearer}`,'Accept':'application/json'},signal:ctrl?.signal});if(to)clearTimeout(to);const raw=await r.text();let d={};try{d=raw?JSON.parse(raw):{};}catch{d={message:raw.slice(0,300)};}if(d.status==='error'||!r.ok)throw new Error(d.errors?.[0]?.message||d.message||`HTTP ${r.status}`);if($.tok)PRO_HUB.cache.set(key,{at:Date.now(),data:d});PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;proHubStatus();return d;}catch(e){error=e;if(e.name==='AbortError')error=new Error('Historical timeout after 15s — will retry');if(!/429|network|cors|http 5|rate|too many|timeout/i.test(error.message)||attempt===2)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)));}}PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');throw error;});PRO_HUB.inflight.set(key,task);try{return await task;}finally{PRO_HUB.inflight.delete(key);}
+  if(!bearer)throw new Error('No access token');const ttl=url.includes('/intraday/')?10000:120000,key=`HIST|${url}`,now=Date.now(),cached=PRO_HUB.cache.get(key);if(cached&&now-cached.at<ttl){PRO_HUB.hits++;proHubStatus();return cached.data;}if(PRO_HUB.inflight.has(key)){PRO_HUB.hits++;return PRO_HUB.inflight.get(key);}const task=proSchedule(async()=>{let error;for(let attempt=0;attempt<3;attempt++){proHubProgress();try{PRO_HUB.requests++;const ctrl=typeof AbortController!=='undefined'?new AbortController():null;const to=ctrl?setTimeout(()=>ctrl.abort(),15000):null;let r,raw;try{r=await fetch(url,{headers:{'Authorization':`Bearer ${bearer}`,'Accept':'application/json'},signal:ctrl?.signal});raw=await r.text();}finally{if(to)clearTimeout(to);}let d={};try{d=raw?JSON.parse(raw):{};}catch{d={message:raw.slice(0,300)};}if(d.status==='error'||!r.ok)throw new Error(d.errors?.[0]?.message||d.message||`HTTP ${r.status}`);if($.tok||$.atok)PRO_HUB.cache.set(key,{at:Date.now(),data:d});PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;proHubStatus();return d;}catch(e){error=e;if(e.name==='AbortError')error=new Error('Historical timeout after 15s — will retry');if(!/429|network|cors|http 5|rate|too many|timeout/i.test(error.message)||attempt===2)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)));}}PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');throw error;});PRO_HUB.inflight.set(key,task);try{return await task;}finally{PRO_HUB.inflight.delete(key);}
 }
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 function jsStr(s){return String(s).replace(/[\\'"<>&`\u2028\u2029]/g,m=>({'\\':'\\\\','\'':'\\\'','"':'\\"','<':'\\x3c','>':'\\x3e','&':'\\x26','`':'\\x60','\u2028':'\\u2028','\u2029':'\\u2029'}[m]));}
@@ -2462,10 +2469,28 @@ function chooseInstrumentMasterFile(){
    reasons surface via the error passthrough. GTT placement is broker-side (no
    exchange order until the trigger fires), so it works after hours. */
 function istClock(d=new Date()){return new Date(d.getTime()+(d.getTimezoneOffset()+330)*60000);}
+/* AUDIT FIX (L1): the MCX evening close follows US daylight-saving time, not a
+   crude month window — 23:30 IST while the US is on DST (2nd Sunday of March
+   02:00 → 1st Sunday of November 02:00), 23:55 IST otherwise. marketPhase()
+   used Mar–Oct and marketHoursOpen() used Apr–Oct, so during March the gate
+   said "closed, use AMO" while the feed watchdog still thought the market was
+   live. One helper now answers for both. */
+function nthSundayUTC(year,monthIdx,nth,hourUTC){
+  const first=new Date(Date.UTC(year,monthIdx,1)).getUTCDay();
+  const day=1+((7-first)%7)+7*(nth-1);
+  return Date.UTC(year,monthIdx,day,hourUTC||0);
+}
+function mcxCloseMinute(value){
+  const p=chartISTParts(value==null?Date.now():value);
+  /* 07:00 UTC = 02:00 US eastern (DST start), 06:00 UTC = 02:00 US eastern
+     after the clocks go back. Date.UTC takes HOURS, not minutes. */
+  const at=Date.UTC(p.y,p.m-1,p.d),dstStart=nthSundayUTC(p.y,2,2,7),dstEnd=nthSundayUTC(p.y,10,1,6);
+  return at>=dstStart&&at<dstEnd?23*60+30:23*60+55;
+}
 function marketPhase(group){
   const d=istClock(),day=d.getDay();if(day===0||day===6)return'closed';
   const m=d.getHours()*60+d.getMinutes(),g=String(group||'').toUpperCase();
-  if(g==='COMM'||g==='MCX'){const close=(d.getMonth()>=2&&d.getMonth()<=9)?1410:1435;return(m>=540&&m<close)?'open':'closed';}
+  if(g==='COMM'||g==='MCX'){const close=mcxCloseMinute();return(m>=540&&m<close)?'open':'closed';}
   if(g==='CURR')return(m>=540&&m<1020)?'open':'closed';
   return(m>=555&&m<930)?'open':'closed';
 }
@@ -2671,6 +2696,8 @@ async function aExch(){
     const raw=await r.text(); let d={}; try{d=JSON.parse(raw);}catch{d={message:raw.slice(0,300)};}
     if(!r.ok||!d.access_token) throw new Error(d.errors?.[0]?.message||d.message||`HTTP ${r.status}`);
     $.tok=d.access_token;
+    $.ro=false;$.authShiftAt=0;
+    PRO_HUB.cache.clear();   /* B3: never serve the previous session's cached payloads */
     sessionStorage.setItem('u_tok',$.tok);
     sessionStorage.removeItem('u_as');
     const aS=document.getElementById('aS'); if(aS)aS.value='';
@@ -2694,15 +2721,39 @@ function aTok(){
      Pasting a fresh daily token no longer clears it. */
   if(t){
     if(t.length<20)return ts('That does not look like a valid access token','w');
+    const changed=t!==$.tok;
     $.tok=t;$.ro=false;$.authShiftAt=0;   /* fresh daily token — clear any 401 shift state */
     try{sessionStorage.setItem('u_tok',t);}catch(e){}
+    /* AUDIT FIX (B3): a new token means new broker permissions/identity, so
+       every payload cached under the OLD token must go — otherwise the app
+       serves the previous session's orders/positions/funds for one TTL. */
+    if(changed)PRO_HUB.cache.clear();
+    /* Pasting both fields used to silently DROP the analytics token. Stage it
+       here so the daily token keeps a 1-year fallback on its next expiry. */
+    if(a.length>=20){$.atok=a;try{sessionStorage.setItem('u_atok',a);localStorage.setItem('u_atok',a);}catch(e){}}
     const aT=document.getElementById('aT'); if(aT)aT.value='';
+    const aN=document.getElementById('aN'); if(aN)aN.value='';
     init();return;
   }
   if(a.length<20)return ts('That does not look like a valid analytics token','w');
-  $.atok=a;$.tok='';$.ro=true;
-  try{sessionStorage.setItem('u_atok',a);localStorage.setItem('u_atok',a);sessionStorage.removeItem('u_tok');}catch(e){}
+  /* AUDIT FIX (B3): pasting the Analytics token while a daily session is live
+     used to throw the daily token away (dropping the app into read-only mode
+     mid-session). The Analytics token is the FALLBACK layer — stage it and
+     keep trading; logout first if a read-only session is what you want. */
+  $.atok=a;
+  try{sessionStorage.setItem('u_atok',a);localStorage.setItem('u_atok',a);}catch(e){}
+  PRO_HUB.cache.clear();
   const aN=document.getElementById('aN'); if(aN)aN.value='';
+  /* Only keep the daily session when the app is actually RUNNING on it — if
+     the login screen is showing (a dead/failed daily token), fall through to a
+     read-only session instead of leaving the user stuck at the login form. */
+  const appRunning=!!document.getElementById('AP')?.classList.contains('on');
+  if($.tok&&appRunning){
+    ts('Analytics token saved as the read-only fallback — your daily session stays active. Log out first for a read-only session.','s');
+    return;
+  }
+  $.tok='';$.ro=true;$.authShiftAt=0;
+  try{sessionStorage.removeItem('u_tok');}catch(e){}
   init();
 }
 function logout(){
@@ -2710,6 +2761,9 @@ function logout(){
      so a pasted/leaked token is dead even if this tab is cloned. Fire-and-forget. */
   try{const t=$.tok;if(t)fetch(API_BASE+END.LOGOUT.path,{method:'DELETE',headers:{Authorization:'Bearer '+t},keepalive:true}).catch(()=>{});}catch(e){}
   $.tok='';$.atok='';$.ro=false;
+  /* AUDIT FIX (B4): the 401 de-dupe window survived a logout, so a fresh
+     login within 4 s could have its first rejected call swallowed. */
+  $.authShiftAt=0;
   sessionStorage.removeItem('u_tok');
   sessionStorage.removeItem('u_atok');
   localStorage.removeItem('u_atok');
@@ -2734,8 +2788,22 @@ function logout(){
   if(OC.ws){try{OC.ws.onclose=null;OC.ws.onerror=null;OC.ws.onmessage=null;OC.ws.close();}catch{} OC.ws=null;}
   OC.connected=false;OC.fallback=false;OC.wantLive=false;OC.wsAttempts=0;OC.polling=false;
   clearTimeout(OC.reconnectTimer);OC.reconnectTimer=null;
+  /* B4 follow-up: the option chain's index/strike cache also survived a logout
+     — and because ocAutoInit() bails while OC.underKey is set, the next login
+     opened an EMPTY chain page instead of auto-loading Nifty 50. */
+  try{OC.underKey='';OC.chain=[];OC.filtered=[];OC.keys=[];OC.live={};OC.map=null;OC.atm=0;OC.spot=0;OC.spotCp=0;OC.baseOi={};OC.baseOiSession={};OC.liveMode={};OC.maxDepthSeen=0;OC.grantNotified=false;OC.grantTicks=0;}catch(e){}
   /* Wipe in-memory portfolio so a shared machine does not flash prior data. */
   $.prof=null;$.ords=[];$.oM={};$.pos=[];$.hld=[];$.lq={};$.cd=[];$.algoResult=null;$.activeInstrument=null;
+  /* AUDIT FIX (B4): the GTT list, kill-switch states, inspector quote, market
+     strip, P&L results and every rendered data table survived a logout — a
+     second user on a shared machine could still see (or act on) the previous
+     session's orders, positions, balances and GTTs. Reset state AND views. */
+  $.gts=[];$.inspectorQuote=null;$.proMarkets={};$.ddSel={};$.wvKeys=[];$.chartVol=null;$.chartOhlcCache=new Map();
+  window._ksStates={};
+  try{utModalClose();}catch(e){}
+  ['oTB','pTB','hTB','gTB','tTB','plB','plCh','plChTotal','wB','ocBody','ocHead',
+   'dM','dU','dPs','dP','dTP','dH','dO','dRO','pTP','pRP','pUP','fA','fU','fO'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.innerHTML='';});
   document.body.classList.remove('pro-inspector-open');
   const ap=document.getElementById('AP'),au=document.getElementById('AU');
   if(ap)ap.classList.remove('on');
@@ -2789,7 +2857,11 @@ async function init(){
     // FIX #45: ensure instrument master download available on startup
     setTimeout(()=>{ ensureInstrumentMasterOnStartup().catch(()=>{}); }, isAndroid?3000:1200);
   }catch(e){
-    const tokErr=/token|unauthor|401|auth|expired/i.test(e.message);
+    /* AUDIT FIX (B6): the old loose regex treated ANY error containing
+       token/auth/expired as a dead session — an instrument-level
+       "contract has expired" wiped a perfectly good daily token. Reuse the
+       single classifier from §12 (plus our own pre-flight wording). */
+    const tokErr=isAuthFailure(e)||/no access token|log in first/i.test(String(e.message||''));
     if(tokErr){$.tok='';sessionStorage.removeItem('u_tok');}
     /* TOKEN-SHIFT: daily token dead (or a read-only session hitting any boot
        error) with a persisted Analytics token → remain in the app in read-only
@@ -3006,7 +3078,7 @@ function chartScheduleDraw(){
   if(document.hidden||!document.getElementById('pg-chart')?.classList.contains('on')||$.chartDrawTimer)return;const mobile=ocIsMobile(),delay=mobile?280:100,analysisGap=mobile?2500:900;$.chartDrawTimer=setTimeout(()=>{$.chartDrawTimer=null;$.chartLastRender=Date.now();drawC();const now=Date.now();if(!$.chartAnalysisAt||now-$.chartAnalysisAt>analysisGap){$.chartAnalysisAt=now;anlC();}},delay);
 }
 function chartApplyTick(ltp,tickMs,ltq,vtt,ltt){
-  if(!Number.isFinite(ltp)||!($.cd||[]).length)return;const cfg=TFS.find(t=>t.id===$.cTF);if(!cfg)return;let last=$.cd.at(-1),bucket=chartBucketStart(tickMs,cfg,last);if(bucket==null)return;const lastBucket=last.t.getTime(),isNew=bucket>lastBucket;let visualChange=isNew;
+  if(!Number.isFinite(ltp)||!Number.isFinite(tickMs)||!($.cd||[]).length)return;const cfg=TFS.find(t=>t.id===$.cTF);if(!cfg)return;let last=$.cd.at(-1),bucket=chartBucketStart(tickMs,cfg,last);if(bucket==null)return;const lastBucket=last.t.getTime(),isNew=bucket>lastBucket;/* AUDIT FIX (L6): a late tick from an EARLIER bucket was folded into the newest candle — its low/close jumped to the stale price. Ignore it; the intraday reconcile backfills the true OHLC. */if(bucket<lastBucket)return;let visualChange=isNew;
   if(isNew){last={t:new Date(bucket),o:ltp,h:ltp,l:ltp,c:ltp,v:Number.isFinite(ltq)?ltq:0,live:true};$.cd.push(last);if($.cd.length>1800)$.cd.splice(0,$.cd.length-1800);$.chartVol={bucket,baseVolume:last.v,baseVtt:Number.isFinite(vtt)?vtt:null,lastLtt:ltt};}
   else{
     const previous=last.c;visualChange=ltp!==previous;last.h=Math.max(last.h,ltp);last.l=Math.min(last.l,ltp);last.c=ltp;last.live=true;
@@ -3023,14 +3095,15 @@ function chartApplyFeedOHLC(mf,tickMs){const cfg=TFS.find(x=>x.id===$.cTF),ohlc=
   if(cfg.unit==='days'){usable.filter(x=>x.interval==='1d').forEach(x=>chartUpsertExchangeCandle({t:new Date(x.ts),o:x.o,h:x.h,l:x.l,c:x.c,v:x.v,live:chartPeriodKey(x.ts,cfg)===chartPeriodKey(tickMs,cfg)},{complete:false}));return;}
   if(!['minutes','hours'].includes(cfg.unit))return;const sourceInterval=cfg.unit==='minutes'&&cfg.iv===30?'I30':'I1',sourceMinutes=sourceInterval==='I30'?30:1;/* Keep the minute-OHLC cache per instrument: without this, replaying the cache after a symbol change upserts the previous symbols' price levels into the new chart and vertically squashes the candles. */if($.chartOhlcCacheKey!==$.cKey){$.chartOhlcCache=new Map();$.chartOhlcCacheKey=$.cKey||null;}$.chartOhlcCache=$.chartOhlcCache||new Map();usable.filter(x=>x.interval===sourceInterval).forEach(x=>$.chartOhlcCache.set(x.ts,{...x}));if($.chartOhlcCache.size>700){const sorted=[...$.chartOhlcCache.keys()].sort((a,b)=>a-b);sorted.slice(0,sorted.length-600).forEach(k=>$.chartOhlcCache.delete(k));}const groups=new Map(),needed=(cfg.unit==='hours'?cfg.iv*60:cfg.iv)/sourceMinutes;for(const x of $.chartOhlcCache.values()){if(x.interval!==sourceInterval)continue;const bucket=chartExchangeBucket(x.ts,cfg),g=groups.get(bucket)||[];g.push(x);groups.set(bucket,g);}for(const [bucket,items] of groups){if(bucket<($.cd?.at(-1)?.t?.getTime?.()||0)-chartIntervalMs(cfg)*2)continue;items.sort((a,b)=>a.ts-b.ts);const candle={t:new Date(bucket),o:items[0].o,h:Math.max(...items.map(x=>x.h)),l:Math.min(...items.map(x=>x.l)),c:items.at(-1).c,v:items.reduce((s,x)=>s+x.v,0),live:tickMs<bucket+chartIntervalMs(cfg)};chartUpsertExchangeCandle(candle,{complete:items.length>=needed&&tickMs>=bucket+chartIntervalMs(cfg)});}}
 /* AUDIT: segment-aware market clock. NSE cash/F&O: 09:15-15:40 IST guard.
-   MCX commodities: 09:00-23:30 IST (Apr-Oct, US DST) / 09:00-23:55 (Nov-Mar).
+   MCX commodities: 09:00-23:30 IST while US DST is on / 09:00-23:55 otherwise
+   (mcxCloseMinute() derives the real switch date, shared with marketPhase()).
    chartMarketOpen() follows the CHART's instrument; the shared-WS watchdog
    uses anySharedMarketOpen(); the option chain uses ocMarketOpen(). */
-function marketHoursOpen(key){const p=chartISTParts(Date.now()),day=new Date(Date.UTC(p.y,p.m-1,p.d)).getUTCDay(),mins=p.h*60+p.mi;if(day<1||day>5)return false;if(/^MCX/i.test(String(key||''))){const end=(p.m>=4&&p.m<=10)?23*60+30:23*60+55;return mins>=540&&mins<=end;}return mins>=555&&mins<=940;}
+function marketHoursOpen(key){const p=chartISTParts(Date.now()),day=new Date(Date.UTC(p.y,p.m-1,p.d)).getUTCDay(),mins=p.h*60+p.mi;if(day<1||day>5)return false;if(/^MCX/i.test(String(key||''))){const end=mcxCloseMinute();return mins>=540&&mins<=end;}return mins>=555&&mins<=940;}
 function anySharedMarketOpen(){if(marketHoursOpen(''))return true;const keys=[...(($.wl||[]).map(w=>w.k)),$.cKey,$.activeInstrument?.k,...((typeof OC!=='undefined'&&OC.fallback)?(OC.keys||[]):[])];return keys.some(k=>k&&/^MCX/i.test(String(k))&&marketHoursOpen(k));}
 function ocMarketOpen(){return marketHoursOpen(typeof OC!=='undefined'?(OC.underKey||''):'');}
 function chartMarketOpen(){return marketHoursOpen($.cKey||'');}
-async function chartFetchFreshIntraday(url){return proSchedule(async()=>{const bearer=$.tok||$.atok;let error;for(let attempt=0;attempt<3;attempt++){proHubProgress();try{PRO_HUB.requests++;proHubStatus('busy');const ctrl=typeof AbortController!=='undefined'?new AbortController():null;const to=ctrl?setTimeout(()=>ctrl.abort(),15000):null;const r=await fetch(url,{headers:{Authorization:`Bearer ${bearer}`,Accept:'application/json'},signal:ctrl?.signal});if(to)clearTimeout(to);const raw=await r.text();let d={};try{d=JSON.parse(raw);}catch{d={message:raw.slice(0,250)};}if(!r.ok||d.status==='error')throw new Error(d.errors?.[0]?.message||d.message||`HTTP ${r.status}`);PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;proHubStatus();return d;}catch(e){error=e;if(e.name==='AbortError')error=new Error('Chart intraday timeout after 15s — will retry');const retry=/429|network|cors|http 5|rate|too many|timeout/i.test(error.message);if(!retry||attempt===2)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)));}}PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');throw error;});}
+async function chartFetchFreshIntraday(url){return proSchedule(async()=>{const bearer=$.tok||$.atok;let error;for(let attempt=0;attempt<3;attempt++){proHubProgress();try{PRO_HUB.requests++;proHubStatus('busy');const ctrl=typeof AbortController!=='undefined'?new AbortController():null;const to=ctrl?setTimeout(()=>ctrl.abort(),15000):null;let r,raw;try{r=await fetch(url,{headers:{Authorization:`Bearer ${bearer}`,Accept:'application/json'},signal:ctrl?.signal});raw=await r.text();}finally{if(to)clearTimeout(to);}let d={};try{d=JSON.parse(raw);}catch{d={message:raw.slice(0,250)};}if(!r.ok||d.status==='error')throw new Error(d.errors?.[0]?.message||d.message||`HTTP ${r.status}`);PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;proHubStatus();return d;}catch(e){error=e;if(e.name==='AbortError')error=new Error('Chart intraday timeout after 15s — will retry');const retry=/429|network|cors|http 5|rate|too many|timeout/i.test(error.message);if(!retry||attempt===2)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)));}}PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');throw error;});}
 async function chartReconcileIntraday(){if($.chartReconcileBusy||(!$.tok&&!$.atok)||!$.cKey||$.chartLoading)return;const cfg=TFS.find(x=>x.id===$.cTF);if(!cfg||!['minutes','hours','days'].includes(cfg.unit))return;const symKey=$.cKey,tfId=$.cTF;$.chartReconcileBusy=true;try{const url=`${API_BASE}${END.HIST_INTRA}/${encodeURIComponent(symKey)}/${cfg.unit}/${cfg.iv}`,started=Date.now(),d=await chartFetchFreshIntraday(url),fresh=chartParseCandles(d.data?.candles||[]);if(!fresh.length||$.cKey!==symKey||$.cTF!==tfId)return;const map=new Map(($.cd||[]).map(x=>[x.t.getTime(),x])),lastKey=$.cd?.at(-1)?.t?.getTime();fresh.forEach(x=>{const key=x.t.getTime(),old=map.get(key);if(old&&key===lastKey&&old.live){map.set(key,{...x,h:Math.max(x.h,old.h),l:Math.min(x.l,old.l),c:$.chartLastTickMs>=started?old.c:x.c,v:Math.max(x.v,old.v),live:true,reconciled:true});}else map.set(key,{...x,reconciled:true});});$.cd=[...map.values()].sort((a,b)=>a.t-b.t).slice(-1800);$.chartLastReconcile=Date.now();const src=document.getElementById('cSource');if(src)src.textContent=`Historical + intraday canonical • reconciled ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;chartUpdateMeta();chartScheduleDraw();}
   catch(e){console.warn('Chart reconciliation',e.message);}finally{$.chartReconcileBusy=false;}}
 function scheduleChartReconciliation(){clearInterval($.chartReconcileTimer);const cfg=TFS.find(x=>x.id===$.cTF);if(!cfg||!['minutes','hours','days'].includes(cfg.unit))return;const fixed=chartIntervalMs(cfg),period=Math.max(300000,Math.min(900000,fixed||900000));$.chartReconcileTimer=setInterval(()=>{if($.chartLiveEnabled&&document.getElementById('pg-chart')?.classList.contains('on')&&chartMarketOpen())chartReconcileIntraday();},period);}
@@ -4073,7 +4146,7 @@ async function wsC(internal=false){
     ws.onclose=ev=>{if($.ws!==ws)return;$.ws=null;upWS(0);if(typeof wsLog==='function')wsLog('market','closed',ev);if($.chartLiveEnabled)chartSetLiveState('error','Reconnecting');/* The header index strip, inspector and OC fallback all ride this socket — reconnect whenever a session is active (daily OR analytics token). */if(!$.tok&&!$.atok)return;if($.wsOpenedAt&&Date.now()-$.wsOpenedAt>60000)$.wsReconnectAttempts=0;$.wsOpenedAt=0;const attempt=($.wsReconnectAttempts||0)+1;$.wsReconnectAttempts=attempt;const delay=Math.min(30000,1500*Math.pow(2,Math.min(attempt,4)));$.wsReconnectTimer=setTimeout(()=>wsC(true),delay);if(typeof wsKickAll==='function')wsKickAll('main closed'+(ev&&ev.code?' code='+ev.code:''));};
     ws.onerror=()=>{if($.ws===ws){if($.chartLiveEnabled)chartSetLiveState('error','Feed error');if(!internal)ts('Market WebSocket error','e');}};
   }catch(e){$.wsConnecting=false;upWS(0);if($.chartLiveEnabled)chartSetLiveState('error','Feed unavailable');if(!internal)ts('Market WebSocket: '+e.message,'e');else console.warn('Shared WebSocket',e.message);if(typeof wsLog==='function')wsLog('market','connect failed',e.message);
-    if(isAuthFailure(e)){$.wsAuthFailStreak=($.wsAuthFailStreak||0)+1;/* TOKEN-SHIFT: dead daily token + staged Analytics token → demote, retries ride the 1-yr RO token */if($.atok&&$.tok){$.tok='';sessionStorage.removeItem('u_tok');$.wsAuthFailStreak=0;$.ro=true;ts('Daily token expired — market feed shifted to Analytics token (read-only)','w');}else if($.wsAuthFailStreak===5)ts('Market feed stopped — access token looks expired. Log in again.','e');}else $.wsAuthFailStreak=0;
+    if(isAuthFailure(e)){$.wsAuthFailStreak=($.wsAuthFailStreak||0)+1;/* TOKEN-SHIFT: dead daily token + staged Analytics token → demote, retries ride the 1-yr RO token */if($.atok&&$.tok){$.tok='';sessionStorage.removeItem('u_tok');$.wsAuthFailStreak=0;$.ro=true;PRO_HUB.cache.clear();ts('Daily token expired — market feed shifted to Analytics token (read-only)','w');}else if($.wsAuthFailStreak===5)ts('Market feed stopped — access token looks expired. Log in again.','e');}else $.wsAuthFailStreak=0;
     if(($.tok||$.atok)&&($.wsAuthFailStreak||0)<5){const attempt=($.wsReconnectAttempts||0)+1;$.wsReconnectAttempts=attempt;clearTimeout($.wsReconnectTimer);$.wsReconnectTimer=setTimeout(()=>wsC(true),Math.min(30000,1500*Math.pow(2,Math.min(attempt,4))));}}
 }
 function addW(k,s,x,meta={}){const item=normalizeWatchItem({...meta,k,s,x,n:meta.n||s});if(!item)return ts('This instrument cannot be added because its instrument key is invalid','e');$.wl=sanitizeWatchlist($.wl,{fallback:false,save:false});if($.wl.some(w=>w.k===item.k))return ts(`${item.s} is already in the watchlist`,'i');$.wl.push(item);persistWatchlist();rnW();ldWQ();wsSend('sub',[item.k],'full');}
@@ -4321,12 +4394,19 @@ function algoBacktest(candles,ind,strategy,direction,settings){
   /* AUDIT FIX (algo): exposure was divided by candles.length-warmup, but the
      loop scores bars warmup+1 .. length-1 (length-warmup-1 bars) — the metric
      understated time-in-market. Use the exact scored-bar count. */
-  return{trades,curve,endEquity:equity,netReturn:(equity/settings.capital-1)*100,maxDD,winRate:trades.length?wins.length/trades.length*100:0,profitFactor:grossLoss?grossWin/grossLoss:(grossWin?Infinity:0),expectancyR:algoMean(rValues),sharpe:sqn,exposure:candles.length>warmup+1?exposure/(candles.length-warmup-1)*100:0,buyHold:candles.length>1?(candles.at(-1).c/candles[Math.min(warmup,candles.length-2)].o-1)*100:0,totalCosts:trades.reduce((s,x)=>s+x.cost,0),warmup};
+  return{trades,curve,endEquity:equity,netReturn:(equity/settings.capital-1)*100,maxDD,winRate:trades.length?wins.length/trades.length*100:0,profitFactor:grossLoss?grossWin/grossLoss:(grossWin?Infinity:0),expectancyR:algoMean(rValues),sharpe:sqn,exposure:candles.length>warmup+1?exposure/(candles.length-warmup-1)*100:0,/* AUDIT FIX (A1): the loop can only act from bar warmup+1 (it scores bar i-1 to trade bar i), so the buy-and-hold benchmark must enter there too — starting at candles[warmup].o shifted the benchmark by one bar. */buyHold:(()=>{if(candles.length<2)return 0;const start=candles[Math.min(warmup+1,candles.length-1)];return start&&start.o?(candles.at(-1).c/start.o-1)*100:0;})(),totalCosts:trades.reduce((s,x)=>s+x.cost,0),warmup};
 }
 
 function algoISTDateKey(value){const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(value)),get=k=>parts.find(x=>x.type===k)?.value||'';return `${get('year')}-${get('month')}-${get('day')}`;}
 function algoOnlyClosedCandles(candles,unit,interval,sessionCloseMin){
   const now=Date.now();if(unit==='minutes'||unit==='hours'){const duration=(unit==='minutes'?60000:3600000)*interval;return candles.filter(x=>x.t.getTime()+duration<=now-2000);}
+  /* AUDIT FIX (A2): weeks/months fell through to `return candles`, so the
+     still-forming weekly/monthly bar (today's partial data) fed the signals —
+     the same look-ahead the daily branch already guards against. */
+  if(unit==='weeks'||unit==='months'){
+    const nowKey=chartPeriodKey(now,{unit});
+    return candles.filter(x=>x.t.getTime()<=now&&chartPeriodKey(x.t,{unit})!==nowKey);
+  }
   if(unit==='days'){
     const today=algoISTDateKey(now),timeParts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)),hour=Number(timeParts.find(x=>x.type==='hour')?.value||0),minute=Number(timeParts.find(x=>x.type==='minute')?.value||0),marketClosed=hour*60+minute>=(Number.isFinite(sessionCloseMin)?sessionCloseMin:931);   /* NSE/BSE 15:31 IST; MCX closes 23:30/23:55 so today's partial daily bar must not count as closed */
     return candles.filter(x=>{const key=algoISTDateKey(x.t);return key<today||(key===today&&marketClosed);});
@@ -4586,7 +4666,12 @@ async function ocLoadExpiries(){
 function prepareOCChain(raw,mode){
   const chain=(raw||[]).slice().sort((a,b)=>toNum(a.strike_price)-toNum(b.strike_price));if(!chain.length)throw new Error('No option-chain data returned');
   OC.chain=chain;OC.live={};OC.map=null;OC.spot=toNum(chain.find(r=>r.underlying_spot_price!=null)?.underlying_spot_price);OC.spotCp=0;
-  let atmIdx=0,diff=Infinity;chain.forEach((r,i)=>{const d=Math.abs(toNum(r.strike_price)-OC.spot);if(d<diff){diff=d;atmIdx=i;}});OC.atm=toNum(chain[atmIdx].strike_price);
+  /* AUDIT FIX (L8): with no underlying_spot_price every distance was measured
+     from 0, so the ±N-strike window centred on the LOWEST strikes in the chain
+     (usually deep ITM). Fall back to the median strike and let the first live
+     spot tick re-centre on the real ATM. */
+  const anchor=OC.spot>0?OC.spot:toNum(chain[Math.floor((chain.length-1)/2)]?.strike_price);
+  let atmIdx=0,diff=Infinity;chain.forEach((r,i)=>{const d=Math.abs(toNum(r.strike_price)-anchor);if(d<diff){diff=d;atmIdx=i;}});OC.atm=toNum(chain[atmIdx].strike_price);
   let count=Math.max(5,Math.min(50,Math.trunc(toNum(document.getElementById('ocStrikeCnt').value,15))));if(mode==='full_d30'&&count>11){count=11;document.getElementById('ocStrikeCnt').value='11';ts('Depth 30 allows max 50 instrument keys per socket; showing ±11 strikes (47 keys). Raise strikes only in Full/Greeks modes.','w');}
   const start=Math.max(0,atmIdx-count),end=Math.min(chain.length,atmIdx+count+1);OC.filtered=chain.slice(start,end);const state={atmPos:atmIdx-start};
   /* Baseline OI capture for the OI-change columns (fix pack). */
@@ -4805,24 +4890,32 @@ async function ldPl(){
   if(!$.tok){ts('Trade P&L is daily-token only — Upstox serves it to analytics tokens only from a whitelisted static IP','w');return;}
   const box=document.getElementById('plB');const segment=document.getElementById('plS').value,fy=document.getElementById('plY').value;
   if(!fy){box.innerHTML='<div class="emp"><div class="ed">Pick a financial year first.</div></div>';return;}
+  /* AUDIT FIX (L4): no request-sequence guard — flipping segment/FY quickly
+     let an older (slower) response paint over the newer selection's numbers,
+     and the spinner/summary could describe a different segment than the
+     select shows. Every await now re-checks the ticket it belongs to. */
+  const seq=($.plSeq||0)+1;$.plSeq=seq;
   box.innerHTML='<div class="ld"><div class="sp"></div></div>';
-  try{ldPlCharges(segment,fy);}catch(e){}
+  try{ldPlCharges(segment,fy,seq);}catch(e){}
   try{
     const base=`?segment=${encodeURIComponent(segment)}&financial_year=${encodeURIComponent(fy)}`,meta=await upstoxFetch(END.PNL_META,{query:base}),count=toNum(meta.data?.trades_count),limit=Math.max(1,toNum(meta.data?.page_size_limit,5000));
+    if(seq!==$.plSeq)return;
     if(!count){box.innerHTML='<div class="large-empty compact-empty"><div class="empty-icon">📑</div><b>No realised trades</b><span>There are no trades for this segment and financial year.</span></div>';return;}
     const pageSize=Math.min(count,limit),maxPages=Math.min(20,Math.ceil(count/pageSize));
     let rows=[],page=0;
     while(page<maxPages){
       page++;
       const d=await upstoxFetch(END.PNL_DATA,{query:`${base}&page_number=${page}&page_size=${pageSize}`});
+      if(seq!==$.plSeq)return;
       const part=Array.isArray(d.data)?d.data:[];
       rows=rows.concat(part);
       if(part.length<pageSize)break;
     }
+    if(seq!==$.plSeq)return;
     const pnl=rows.reduce((a,r)=>a+toNum(r.sell_amount)-toNum(r.buy_amount),0),shown=rows.slice(0,1000);
     const note=count>rows.length?`<div class="sigc hsg">Loaded ${rows.length.toLocaleString('en-IN')} of ${count.toLocaleString('en-IN')} trades — totals cover the loaded trades.</div>`:(shown.length<rows.length?`<div class="sigc hsg">Showing the first ${shown.length.toLocaleString('en-IN')} of ${rows.length.toLocaleString('en-IN')} loaded trades — totals cover all loaded trades.</div>`:'');
     box.innerHTML=`<div class="sg"><div class="sc"><div class="sl">Trades</div><div class="sv">${count}</div></div><div class="sc"><div class="sl">Loaded</div><div class="sv">${rows.length}</div></div><div class="sc"><div class="sl">Gross Realised</div><div class="sv">${fp(pnl)}</div></div></div>${note}<div class="tc"><table class="dt"><thead><tr><th>Scrip</th><th>Type</th><th>Qty</th><th>Buy date</th><th>Buy avg</th><th>Sell date</th><th>Sell avg</th><th>P&amp;L</th></tr></thead><tbody>${shown.map(r=>{const p=toNum(r.sell_amount)-toNum(r.buy_amount);return `<tr><td>${escapeHtml(r.scrip_name||r.isin||'-')}</td><td>${escapeHtml(r.trade_type||'-')}</td><td>${toNum(r.quantity)}</td><td>${escapeHtml(r.buy_date||'-')}</td><td>${fmtP(r.buy_average)}</td><td>${escapeHtml(r.sell_date||'-')}</td><td>${fmtP(r.sell_average)}</td><td>${fp(p)}</td></tr>`;}).join('')}</tbody></table></div>`;
-  }catch(e){box.innerHTML=`<div class="emp"><div class="ed">${escapeHtml(e.message)}</div></div>`;}
+  }catch(e){if(seq===($.plSeq||0))box.innerHTML=`<div class="emp"><div class="ed">${escapeHtml(e.message)}</div></div>`;}
 }
 
 
@@ -7234,7 +7327,31 @@ function utModal(title,bodyHtml,wide){
   document.body.appendChild(ov);
 }
 function utModalClose(){const ov=document.getElementById('utModalOv');if(ov)ov.remove();}
-function gttTickFor(g){const m=($.instrumentMaster||[]).find(x=>x.k===g.instrument_token)||{};const t=Number(m.tick??m.tick_size);return Number.isFinite(t)&&t>0?t:.05;}
+/* AUDIT FIX (B12): the master lookup used g.instrument_token only and fell
+   back to a blanket Rs 0.05 tick. GTT rows can carry instrument_token,
+   instrument_key or only the rule legs, and equities trade on a 1-paise tick —
+   so editing a perfectly valid 2999.99 equity trigger was blocked with
+   "must follow tick 0.05". Resolve the instrument properly, then fall back to
+   the segment default (.01 for _EQ, .05 otherwise). */
+function gttTickFor(g){
+  const rules=Array.isArray(g?.rules)?g.rules:[];
+  const keys=[g?.instrument_token,g?.instrument_key,...rules.map(r=>r?.instrument_token||r?.instrument_key)].filter(Boolean).map(String);
+  const hit=($.instrumentMaster||[]).find(x=>keys.includes(x.k))||DB.find(x=>keys.includes(x.k));
+  const t=Number(hit?.tick);
+  if(Number.isFinite(t)&&t>0)return t;
+  const key=keys[0]||'';
+  return /_EQ\|/.test(key)?.01:.05;
+}
+/* Only the mutable request fields may be echoed back to PUT /v3/order/gtt/modify.
+   AUDIT FIX (B12): spreading the GET rule spread response-only fields (status,
+   order_id, failure_reason, created_at, updated_at, quantity …) into the PUT
+   rules — an undocumented payload the broker validates strictly. */
+const GTT_RULE_FIELDS=['strategy','trigger_type','trigger_price','transaction_type','product','market_protection','trailing_gap'];
+function gttRulePayload(rule,overrides){
+  const out={};
+  GTT_RULE_FIELDS.forEach(f=>{if(rule&&rule[f]!=null)out[f]=rule[f];});
+  return Object.assign(out,overrides||{});
+}
 /* GTT modify — PUT /v3/order/gtt/modify {type,quantity,rules[],gtt_order_id}.
    Doc constraints honored: strategies/trigger_types preserved as-is (OPEN GTT
    ENTRY may only accept IMMEDIATE), MULTIPLE stays 2–3 rules, trailing_gap
@@ -7246,7 +7363,8 @@ function modG(id){
   const rules=Array.isArray(g.rules)?g.rules:[];
   const entry=rules[0]||{},target=rules.find(r=>r.strategy==='TARGET'),sl=rules.find(r=>r.strategy==='STOPLOSS');
   const tick=gttTickFor(g);
-  const fld=(id2,label,val)=>`<div class="fgrp"><label>${label}</label><input type="number" class="fi" id="${id2}" step="0.05" value="${val}"></div>`;
+  const side=String(g.transaction_type||entry.transaction_type||'BUY').toUpperCase();
+  const fld=(id2,label,val)=>`<div class="fgrp"><label>${label}</label><input type="number" class="fi" id="${id2}" step="${tick}" value="${val}"></div>`;
   let body=`<div class="fgrp"><label>Order</label><div>${escapeHtml(symbolOf(g)||g.instrument_token||'-')} · ${escapeHtml(g.type||'SINGLE')} · ${escapeHtml(String(g.transaction_type||entry.transaction_type||'-'))}</div></div>
   ${fld('gmQ','Quantity',toNum(g.quantity,1))}
   ${fld('gmTr','Entry trigger price',toNum(entry.trigger_price,0))}
@@ -7261,19 +7379,31 @@ function modG(id){
     if(!Number.isInteger(q)||q<=0)return ts('Quantity must be a positive whole number','e');
     const num=id2=>Number(document.getElementById(id2)?.value||0);
     const nR=[];
-    const e2={...entry,trigger_price:num('gmTr')};
+    const e2=gttRulePayload(entry,{trigger_price:num('gmTr')});
     if(!(e2.trigger_price>0))return ts('Entry trigger must be positive','e');
     if(!priceOnTick(e2.trigger_price,tick))return ts(`Entry trigger must follow tick ₹${tick}`,'e');
     nR.push(e2);
-    if(target){const t2={...target,trigger_price:num('gmTg')};
+    let t2=null,s2=null;
+    if(target){t2=gttRulePayload(target,{trigger_price:num('gmTg')});
       if(!(t2.trigger_price>0))return ts('Target must be positive','e');
       if(!priceOnTick(t2.trigger_price,tick))return ts(`Target must follow tick ₹${tick}`,'e');nR.push(t2);}
-    if(sl){const s2={...sl,trigger_price:num('gmSl')};
+    if(sl){s2=gttRulePayload(sl,{trigger_price:num('gmSl')});
       if(!(s2.trigger_price>0))return ts('Stop-loss must be positive','e');
       if(!priceOnTick(s2.trigger_price,tick))return ts(`Stop-loss must follow tick ₹${tick}`,'e');
       const gapEl=document.getElementById('gmGap');
       if(gapEl)s2.trailing_gap=num('gmGap');
       nR.push(s2);}
+    /* AUDIT FIX (B12): the create path (crG) refuses an inverted bracket
+       (BUY target under the entry, SL above it) but modify happily sent one —
+       the broker then rejects the whole GTT with its generic error. Same rule
+       here when both legs exist. */
+    if(t2&&s2){
+      const entryPx=e2.trigger_price,targetPx=t2.trigger_price,slPx=s2.trigger_price;
+      if(side==='BUY'&&!(targetPx>entryPx&&slPx<entryPx))
+        return ts('BUY bracket: target must be ABOVE the entry trigger and stop-loss BELOW it','e');
+      if(side==='SELL'&&!(targetPx<entryPx&&slPx>entryPx))
+        return ts('SELL bracket: target must be BELOW the entry trigger and stop-loss ABOVE it','e');
+    }
     const btn=document.getElementById('gmSave');btn.disabled=true;
     upstoxFetch(END.GTT_MODIFY,{method:'PUT',body:{type:g.type||'SINGLE',quantity:q,rules:nR,gtt_order_id:String(g.gtt_order_id)}})
       .then(d=>{utModalClose();const lat=d.metadata?.latency;ts(`GTT updated${lat!=null?` · broker ${lat} ms`:''}`,'s');proInvalidate('/order/gtt');ldG();})
@@ -7281,13 +7411,14 @@ function modG(id){
   });
 }
 /* P&L charges breakdown — GET /v2/trade/profit-loss/charges?segment&financial_year */
-async function ldPlCharges(segment,fy){
+async function ldPlCharges(segment,fy,seq){
   if(!$.tok)return;
   const card=document.getElementById('plChCard'),box=document.getElementById('plCh'),tot=document.getElementById('plChTotal');
   if(!card||!box)return;
   card.style.display='';box.innerHTML='<span class="muted-note">Loading charges…</span>';if(tot)tot.textContent='';
   try{
     const d=await upstoxFetch(END.PNL_CHARGES,{query:`?segment=${encodeURIComponent(segment)}&financial_year=${encodeURIComponent(fy)}`});
+    if(seq!=null&&seq!==$.plSeq)return;
     const c=d.data?.charges_breakdown||{},tx=c.taxes||{},ch=c.charges||{};
     const row=(l,v)=>`<tr><td>${escapeHtml(l)}</td><td style="text-align:right">${fp(v)}</td></tr>`;
     box.innerHTML=`<div class="tc"><table class="dt"><tbody>

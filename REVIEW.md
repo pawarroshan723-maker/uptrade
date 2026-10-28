@@ -38,3 +38,49 @@ Fixed items are covered by `tests/regress.js` (29 checks; 15 of them fail on the
 - Kill switch: Upstox's community post says `PUT /v2/user/kill-switch`, the API page says `POST`. Worth a live check.
 
 Checked and found correct: indicators, backtest ordering, margin/order-ticket maths, GTT create, OC feed processing/OI baselines, WS watchdog/reconnect, option-chain fallback, P&L pagination, instrument-master worker (identical to main-thread normaliser), search `segments` values (`EQ,FO,CURR,COMM,INDEX` are valid per Upstox docs), fundamentals scoring.
+
+---
+
+# Round 2 deep dive — 2026-10-28
+
+Scope: the pre-ship fixes from the 2026-10-16 review were verified in code, then the
+still-open items were re-examined and closed where the broker contract was clear.
+Baseline before any edit: **8 suites / 193 checks green** (`node tests/run-all.js`).
+Every fix below is covered by `tests/deepdive.js` (36 checks; **27 of them fail on the
+pre-fix file**, the other 9 are negative controls / behaviour that was already correct).
+
+## Fixed in this round
+
+| ID | Sev | Where | Problem | Fix |
+|----|-----|-------|---------|-----|
+| B5 | **High** | `rawUpstoxFetch`, `apiHist`, `chartFetchFreshIntraday` | The 15 s abort timer was cleared as soon as the **headers** arrived, so a stalled response *body* left `await r.text()` pending forever. That kept one of `PRO_HUB`'s 5 concurrency slots occupied — five stalls wedged every API call in the app (reproduced: the hub's own watchdog reported "no progress for 34.9 s — reset 9 job(s)"). | The abort budget now covers `fetch()` **and** the body read (`try { r=await fetch(); raw=await r.text(); } finally { clearTimeout() }`). A body-level network error is reported as `Network/CORS error`, not a raw DOMException. |
+| CACHE | Med | `upstoxFetch` ×2, `apiHist` | The GET-cache write was gated on `ttl && $.tok`, so **read-only Analytics-token sessions (the 1-year token) never cached anything** — every poll, watchlist refresh and chart reload hit the broker. | Cache under either token. Correctness is preserved because every token transition purges the cache (see B3). |
+| B3 | Med | `aTok`, `aExch`, `wsC` demote | A token change kept payloads cached under the **previous** token: pasting a new daily token served the old session's orders/positions/funds for one TTL. | `PRO_HUB.cache.clear()` on any token change (manual paste, OAuth exchange, WS-driven demote). |
+| B3 | Med | `aTok` | Pasting the Analytics token while a daily session was live **threw the daily token away** (silent drop into read-only mode). Pasting both fields in one submit silently discarded the Analytics token. | The Analytics token is a *fallback layer*: it is staged (session + localStorage) and the live daily session keeps running; a read-only session starts only when the login screen is showing or no daily token exists. Submitting both fields stages both. |
+| B4 | Med | `logout` | The GTT list, kill-switch states, inspector quote, market strip, option-chain strikes/keys, selected instruments, P&L report and **every rendered table** survived a logout, and `$.authShiftAt` kept de-duping 401s for 4 s into the next session. | Logout now resets all of it (state containers + `_ksStates` + rendered `#oTB/#pTB/#hTB/#gTB/#tTB/#plB/#plCh/…#ocBody`, closes any open modal). `OC.*` is cleared too — which also fixes the follow-on bug where `ocAutoInit()` refused to run after a re-login (`OC.underKey` was still set) and the chain page opened empty. |
+| B6 | Low-Med | `init()` catch | `/token|unauthor|401|auth|expired/i` classified any error mentioning "expired" as a dead session — an instrument-level "The contract has expired" wiped a healthy daily token. | Reuses the single `isAuthFailure()` classifier introduced in §12, plus the app's own "no access token" pre-flight wording. |
+| L1 | Med | `marketPhase`, `marketHoursOpen` | Two different month windows decided the MCX evening close (Mar–Oct vs Apr–Oct) and neither matched reality: the 23:30/23:55 switch follows **US DST** (2nd Sunday of March → 1st Sunday of November). In March the order gate demanded AMO while the feed watchdog still believed the market was open. | One `mcxCloseMinute()` helper (US DST rules) feeds both; a `nthSundayUTC()` helper computes the transition instants. |
+| B12 | Med | `modG`, `gttTickFor` | GTT modify spread the **whole GET rule** back into the PUT (`status`, `order_id`, `failure_reason`, timestamps…), fell back to a blanket ₹0.05 tick when the master was not loaded (blocking valid 1-paise equity triggers), and never checked that target/stop-loss sat on the correct side of the entry — the create path (`crG`) does. | `GTT_RULE_FIELDS` whitelist + `gttRulePayload()`; tick resolved from the master (any leg's key) then from the segment (`_EQ` → .01); the same BUY/SELL bracket rule as `crG`; modal `step` follows the tick. |
+| L4 | Low-Med | `ldPl`, `ldPlCharges` | No request-sequence guard: flipping segment/FY quickly let a slower, older response repaint over the newer selection's numbers. | `$.plSeq` token; every await (metadata, each page, charges) re-checks it before painting. |
+| L6 | Low-Med | `chartApplyTick` | A late tick from an **earlier** bucket was folded into the newest candle (its low/close jumped to the stale price). | A bucket older than the last candle is ignored; the intraday reconcile backfills the true OHLC. Also ignores non-finite tick timestamps. |
+| L8 | Low-Med | `prepareOCChain` | With no `underlying_spot_price` every distance was measured from 0, so the ±N window centred on the **lowest** strikes (deep ITM). | Centre on the median strike; the first live spot tick re-centres on the real ATM. |
+| A1 | Low | `algoBacktest` | The buy-and-hold benchmark entered at `candles[warmup].o`, but the loop's first tradeable bar is `warmup+1` — the benchmark was shifted by one bar. | Enters at `warmup+1` (bounded), so the benchmark and the strategy share a start. |
+| A2 | Low | `algoOnlyClosedCandles` | `weeks` / `months` fell through unfiltered — the still-forming weekly/monthly candle (today's partial data) fed the signals and the backtest. | Drops the candle whose IST period key equals the current one. |
+
+## Still open (unchanged, need broker confirmation or a product decision)
+
+- **L2** `plO`/`crG` compare MCX **lots** to the master `freeze_quantity` (units for NSE; the MCX unit is unverified) — left alone deliberately, a wrong conversion is worse than a conservative slice.
+- Kill switch: Upstox's community post says `PUT /v2/user/kill-switch`, the API page says `POST`. Unchanged pending a live check.
+- Equity tick is pinned to ₹0.01 for `_EQ` (master says 0.05 for some rows) — deliberate, documented, harmless.
+- README is stale (line count, `package.json`).
+
+## Verification
+
+| Check | Result |
+|---|---|
+| `node --check` on both executable script blocks | PASS |
+| Full battery (`node tests/run-all.js`) | **229/229 green across 9 suites** (was 193) |
+| New suite `tests/deepdive.js` | 36 checks; **27 fail on the pre-fix file**, 36/36 pass now |
+| Mutation sanity (each fix reverted in isolation) | body-read timeout removed → 2 fail · MCX close back to a month window → 2 fail · logout resets dropped → 5 fail · GTT rule whitelist + tick fallback reverted → 4 fail |
+| Malformed-response fuzz (data = `null`, `[{}]`, garbage strings) across all 14 pages + every `ld*` loader | 0 uncaught errors / rejections |
+| Full-page smoke with realistic payloads (14 pages, `opnM`, `estMargin`, `ldOC`, `ldOC_WS`, `ldPl`, `runA`, `loadFundamentals`) | 0 uncaught errors / rejections |
