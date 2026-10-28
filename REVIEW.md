@@ -46,8 +46,8 @@ Checked and found correct: indicators, backtest ordering, margin/order-ticket ma
 Scope: the pre-ship fixes from the 2026-10-16 review were verified in code, then the
 still-open items were re-examined and closed where the broker contract was clear.
 Baseline before any edit: **8 suites / 193 checks green** (`node tests/run-all.js`).
-Every fix below is covered by `tests/deepdive.js` (36 checks; **27 of them fail on the
-pre-fix file**, the other 9 are negative controls / behaviour that was already correct).
+Every fix below is covered by `tests/deepdive.js` (originally 36 checks; it now holds
+**50** after Round 3, **36 of which fail on the pre-fix file**).
 
 ## Fixed in this round
 
@@ -79,8 +79,49 @@ pre-fix file**, the other 9 are negative controls / behaviour that was already c
 | Check | Result |
 |---|---|
 | `node --check` on both executable script blocks | PASS |
-| Full battery (`node tests/run-all.js`) | **229/229 green across 9 suites** (was 193) |
-| New suite `tests/deepdive.js` | 36 checks; **27 fail on the pre-fix file**, 36/36 pass now |
+| Full battery (`node tests/run-all.js`) | **229/229 green across 9 suites** at the end of this round (193 before it) |
+| New suite `tests/deepdive.js` | 36 checks added here; all pass, 27 of them fail on the pre-fix file |
 | Mutation sanity (each fix reverted in isolation) | body-read timeout removed → 2 fail · MCX close back to a month window → 2 fail · logout resets dropped → 5 fail · GTT rule whitelist + tick fallback reverted → 4 fail |
 | Malformed-response fuzz (data = `null`, `[{}]`, garbage strings) across all 14 pages + every `ld*` loader | 0 uncaught errors / rejections |
 | Full-page smoke with realistic payloads (14 pages, `opnM`, `estMargin`, `ldOC`, `ldOC_WS`, `ldPl`, `runA`, `loadFundamentals`) | 0 uncaught errors / rejections |
+
+---
+
+# Round 3 deep dive — 2026-10-28 (second sweep)
+
+Same method: read the path, reproduce, write a failing assertion, fix, prove the assertion
+now fails on the pre-fix file. `tests/deepdive.js` grew from 36 to **50 checks**; the full
+battery is **243/243 green across 9 suites**.
+
+## Fixed in this round
+
+| ID | Sev | Where | Problem | Fix |
+|----|-----|-------|---------|-----|
+| R3-1 | Med | `chartBucketStart` | Daily/weekly/monthly bars start at the broker's **period start** (IST midnight, Monday, the 1st), but a live tick opened a fresh period bar at the **09:15 session open**. Whenever the current period had no candle yet, a second bar appeared for the same day — with the live LTP as its "open" — and the reconcile could not merge it because it keys on the exact timestamp. | New `chartPeriodStartMs()` anchors new period bars to IST midnight / Monday / the 1st; the same-period fold is unchanged. |
+| R3-2 | Med | `algoOnlyClosedCandles`, `runA` | The daily look-ahead guard used one blanket 15:31 IST close for every non-MCX instrument. A **currency (CDS) session runs to 17:00**, so a backtest started between 15:31 and 17:00 folded today's still-forming candle into the signals — look-ahead in the exact place the guard exists to prevent it. | `algoSessionCloseMin(inst)` derives the close from the segment (MCX → `mcxCloseMinute()+1`, CDS → 17:01, NSE/BSE → 15:31); `runA` passes the instrument. |
+| R3-3 | Low | `ldPlCharges` | The success path honoured the L4 request ticket, the **error path did not**: a slow failure for the previous segment painted "Charges unavailable" over the card the user had just switched to. | The catch re-checks `seq` before painting. |
+| R3-4 | **Med-High** | `sqO` | The single-position **Exit** button always sent `is_amo:false` and never consulted the clock, so pressing it outside the session (or on MCX after 23:30) was rejected by the broker (UDAPI100039) instead of being queued. `plO` has the full gate; this path had none. | Same contract as `plO`: refuse inside the API's 00:00–05:30 window, queue an AMO outside the session with an explicit confirm, keep the live order in session. |
+| R3-5 | Low | `proCachePrune` | `proTTL()` caches news for 5 minutes, but the 60 s pruner had no `/news` branch — every news payload was dropped after a minute and each reopen re-hit the broker. | The pruner's TTL table gained the missing `/news` branch. |
+
+## Test-harness bug found while writing R3-4
+
+The earlier MCX block overrode `window.istClock` and cleaned up with `delete window.istClock`.
+A global **function declaration** is not configurable, so the delete silently failed and the
+frozen clock (23:40 IST, 10 March) leaked into every later test — which is why the first
+version of the R3-4 checks disagreed with the app. The suite now saves and restores the
+function; any future clock-dependent assertion must do the same.
+
+## Still open (unchanged)
+
+- **L2** MCX lots vs the master `freeze_quantity` unit basis (needs broker confirmation).
+- Kill-switch verb (`PUT` vs `POST`) — needs a live check.
+- Tick pinned to ₹0.01 for `_EQ` — deliberate and correct for NSE cash, kept.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| Full battery (`node tests/run-all.js`) | **243/243 green, 9 suites** |
+| `tests/deepdive.js` on the pre-fix file | **36 FAIL / 14 PASS** (the 14 are controls) |
+| Mutation sanity (each fix reverted in isolation) | body-read timeout → 2 fail · MCX month window → 2 fail · logout resets → 5 fail · GTT whitelist/tick → 4 fail |
+| Malformed-payload probe over 14 pages + 20 loaders | 0 uncaught errors / rejections |

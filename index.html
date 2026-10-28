@@ -1939,6 +1939,10 @@ function proCachePrune(){
     if(k.startsWith('HIST|')){return k.includes('/intraday/')?10000:120000;}
     const p=k;
     if(p.includes('/authorize')||p.includes('feed/'))return 0;
+    /* AUDIT FIX (R3-5): proTTL() caches news for 5 minutes but this pruner
+       had no /news branch, so every news payload was dropped after 60 s and
+       each reopen re-hit the broker. Keep both tables in step. */
+    if(p.includes('/news'))return 300000;
     if(p.includes('/fundamentals/'))return 900000;
     if(p.includes('/instruments/search'))return 600000;
     if(p.includes('/user/profile'))return 600000;
@@ -3067,7 +3071,22 @@ function chartBucketStart(tickMs,cfg,last){
   const lastMs=last?.t?.getTime?.();
   if(last&&chartPeriodKey(last.t,cfg)===chartPeriodKey(tickMs,cfg))return lastMs;
   if(Number.isFinite(lastMs)&&tickMs<lastMs)return null;
-  return chartISTSessionStart(tickMs).getTime();
+  return chartPeriodStartMs(tickMs,cfg);
+}
+/* AUDIT FIX (R3-1): the broker stamps daily/weekly/monthly candles at IST
+   MIDNIGHT (Monday / the 1st) — not at the 09:15 session open. Starting a
+   fresh period bar at the session open produced a SECOND bar for the same
+   day (with the live LTP as its "open") whenever the period had no candle
+   yet, and the reconcile could not merge them (it keys on the timestamp).
+   Anchor new period bars to the broker's period start instead. */
+function chartPeriodStartMs(value,cfg){
+  const p=chartISTParts(value),unit=String(cfg?.unit||'');
+  if(unit==='weeks'){
+    const base=Date.UTC(p.y,p.m-1,p.d),dow=(new Date(base).getUTCDay()+6)%7;   /* Monday = 0 */
+    return base-dow*86400000-330*60000;
+  }
+  if(unit==='months')return Date.UTC(p.y,p.m-1,1)-330*60000;
+  return Date.UTC(p.y,p.m-1,p.d)-330*60000;
 }
 function chartAxisLabel(value){const d=new Date(value),cfg=TFS.find(t=>t.id===$.cTF);return cfg&&(cfg.unit==='minutes'||cfg.unit==='hours')?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString(undefined,{day:'2-digit',month:'short'});}
 function chartUpdateMeta(source){
@@ -3851,13 +3870,22 @@ async function sqO(t,pr,q){
   const freeze=toNum(meta.freeze_quantity||meta.freeze||(_mk&&!/^MCX_/i.test(t)?_mk.freeze:0)||0);
   const willSlice=freeze>0&&qty>freeze;
   const sym=symbolOf(meta)||t;
-  if(!confirm(`EXIT ${side} ${qty} ${sym} (${product} MARKET)${willSlice?`\nQuantity exceeds freeze ${freeze} — will slice.`:''}\nThis cannot be undone.`))return;
+  /* AUDIT FIX (R3-4): the single-position Exit always sent is_amo:false and
+     never looked at the clock, so pressing it after hours (or on MCX after
+     23:30) was rejected with UDAPI100039/UDAPI100074. Mirror plO(): refuse
+     inside the API's 00:00-05:30 window and queue an AMO outside the session. */
+  if(!placeApiOpen())return ts('Upstox accepts orders only 05:30 AM–12:00 AM IST (UDAPI100074) — retry after 5:30 AM','e');
+  const liveSession=marketPhaseFor({k:t})==='open',amoExit=!liveSession;
+  const exitTxt=`EXIT ${side} ${qty} ${sym} (${product} MARKET)${willSlice?`\nQuantity exceeds freeze ${freeze} — will slice.`:''}`;
+  if(!liveSession){
+    if(!confirm(`Market is closed for this instrument — the exit can only be queued as an AMO for the next session.\n${exitTxt}\nQueue it?`))return ts('Market closed — nothing sent.','i');
+  }else if(!confirm(`${exitTxt}\nThis cannot be undone.`))return;
   $.exitBusy=true;
   try{
     await upstoxFetch(END.ORDER_PLACE,{method:'POST',body:{
       quantity:qty,product,validity:'DAY',price:0,tag:'uptrade-exit',
       instrument_token:t,order_type:'MARKET',transaction_type:side,
-      disclosed_quantity:0,trigger_price:0,is_amo:false,slice:willSlice,market_protection:-1
+      disclosed_quantity:0,trigger_price:0,is_amo:amoExit,slice:willSlice,market_protection:-1
     }});
     ts('Exit order placed'+ (willSlice?' (sliced)':''),'s');
     proInvalidate('/portfolio/short-term-positions');proInvalidate('/order/');
@@ -4398,8 +4426,18 @@ function algoBacktest(candles,ind,strategy,direction,settings){
 }
 
 function algoISTDateKey(value){const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(value)),get=k=>parts.find(x=>x.type===k)?.value||'';return `${get('year')}-${get('month')}-${get('day')}`;}
-function algoOnlyClosedCandles(candles,unit,interval,sessionCloseMin){
-  const now=Date.now();if(unit==='minutes'||unit==='hours'){const duration=(unit==='minutes'?60000:3600000)*interval;return candles.filter(x=>x.t.getTime()+duration<=now-2000);}
+function algoSessionCloseMin(inst){
+  /* AUDIT FIX (R3-2): the daily look-ahead guard used a blanket 15:31 IST
+     close for every non-MCX instrument, so a currency (CDS) backtest run
+     between 15:31 and 17:00 folded TODAY'S still-forming candle into the
+     signals. Each segment has its own close. */
+  const k=String(inst?.k||inst?.instrument_token||''),grp=instrumentGroup(inst||{});
+  if(/^MCX_/i.test(k)||grp==='COMM')return mcxCloseMinute()+1;   /* 23:31 / 23:56 IST */
+  if(grp==='CURR')return 17*60+1;                                  /* CDS closes 17:00 IST */
+  return 15*60+31;                                                 /* NSE/BSE cash & F&O close 15:30 */
+}
+function algoOnlyClosedCandles(candles,unit,interval,sessionCloseMin,inst){
+  const now=Date.now(),closeMin=Number.isFinite(Number(sessionCloseMin))?Number(sessionCloseMin):algoSessionCloseMin(inst);if(unit==='minutes'||unit==='hours'){const duration=(unit==='minutes'?60000:3600000)*interval;return candles.filter(x=>x.t.getTime()+duration<=now-2000);}
   /* AUDIT FIX (A2): weeks/months fell through to `return candles`, so the
      still-forming weekly/monthly bar (today's partial data) fed the signals —
      the same look-ahead the daily branch already guards against. */
@@ -4408,7 +4446,7 @@ function algoOnlyClosedCandles(candles,unit,interval,sessionCloseMin){
     return candles.filter(x=>x.t.getTime()<=now&&chartPeriodKey(x.t,{unit})!==nowKey);
   }
   if(unit==='days'){
-    const today=algoISTDateKey(now),timeParts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)),hour=Number(timeParts.find(x=>x.type==='hour')?.value||0),minute=Number(timeParts.find(x=>x.type==='minute')?.value||0),marketClosed=hour*60+minute>=(Number.isFinite(sessionCloseMin)?sessionCloseMin:931);   /* NSE/BSE 15:31 IST; MCX closes 23:30/23:55 so today's partial daily bar must not count as closed */
+    const today=algoISTDateKey(now),timeParts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)),hour=Number(timeParts.find(x=>x.type==='hour')?.value||0),minute=Number(timeParts.find(x=>x.type==='minute')?.value||0),marketClosed=hour*60+minute>=closeMin;   /* NSE/BSE 15:31 IST; MCX closes 23:30/23:55 so today's partial daily bar must not count as closed */
     return candles.filter(x=>{const key=algoISTDateKey(x.t);return key<today||(key===today&&marketClosed);});
   }
   return candles;
@@ -4573,7 +4611,7 @@ async function runA(){
       upstoxFetchNews('instrument_keys', [sel.k], 1, 15)
     ]);
     if(candleRes.status==='rejected') throw candleRes.reason;
-    const raw=candleRes.value,all=(raw.data?.candles||[]).sort((a,b)=>new Date(a[0])-new Date(b[0])).map(c=>({t:new Date(c[0]),o:toNum(c[1]),h:toNum(c[2]),l:toNum(c[3]),c:toNum(c[4]),v:toNum(c[5])})),closed=algoOnlyClosedCandles(all,unit,interval,(/^MCX_/i.test(String(sel?.k||''))||/^MCX_/i.test(String(sel?.segment||'')))?1436:undefined),candles=closed.slice(-bars),minimum=strategy==='trend'?220:100;
+    const raw=candleRes.value,all=(raw.data?.candles||[]).sort((a,b)=>new Date(a[0])-new Date(b[0])).map(c=>({t:new Date(c[0]),o:toNum(c[1]),h:toNum(c[2]),l:toNum(c[3]),c:toNum(c[4]),v:toNum(c[5])})),closed=algoOnlyClosedCandles(all,unit,interval,undefined,sel),candles=closed.slice(-bars),minimum=strategy==='trend'?220:100;
     const newsArticles=(newsRes.status==='fulfilled'&&newsRes.value?.data?.[sel.k])||[];
     const newsAnalysis=analyzeInstrumentNews(newsArticles);
     /* AUDIT FIX (algo): e.g. 15-minute candles cap at 1 month on the v3 API,
@@ -7426,7 +7464,7 @@ async function ldPlCharges(segment,fy,seq){
       ${row('Transaction',ch.transaction)}${row('Clearing',ch.clearing)}${row('IPFT',ch.ipft)}${row('SEBI turnover',ch.sebi_turnover)}${row('Demat transaction',ch.demat_transaction)}${row('Other',ch.others)}
     </tbody></table></div>`;
     if(tot)tot.textContent='Total '+fp(c.total);
-  }catch(e){box.innerHTML=`<span class="muted-note">Charges unavailable: ${escapeHtml(String(e.message||e))}</span>`;}
+  }catch(e){/* AUDIT FIX (R3-3): the error path ignored the ticket, so a slow failure for the PREVIOUS segment painted "Charges unavailable" over the card the user had just switched to. */if(seq!=null&&seq!==$.plSeq)return;box.innerHTML=`<span class="muted-note">Charges unavailable: ${escapeHtml(String(e.message||e))}</span>`;}
 }
 /* Kill switch — POST /v2/user/kill-switch [{segment,action}].
    Docs: pending orders auto-cancel on DISABLE; 12-hour cooling to re-enable;

@@ -83,13 +83,14 @@ const OKBODY = { status: 'success', data: [] };
   ok('MCX: the feed gate closes after 23:30 IST during US DST (10 Mar 23:50)', openAt('2026-03-10T18:20:00Z') === false);
   ok('MCX: the feed gate keeps early March open to 23:55 IST (5 Mar 23:50)', openAt('2026-03-05T18:20:00Z') === true);
 
-  w.eval(`window.istClock=()=>new Date(2026,2,10,23,40,0)`);      // 23:40 IST, 10 Mar
+  w.eval(`window.__istReal=window.istClock`);                     // restore point: a global
+  w.eval(`window.istClock=()=>new Date(2026,2,10,23,40,0)`);      // function declaration is not deletable
   const phaseAt2340 = w.eval(`marketPhase('COMM')`);
   w.eval(`window.istClock=()=>new Date(2026,2,10,23,20,0)`);      // 23:20 IST, 10 Mar
   const phaseAt2320 = w.eval(`marketPhase('COMM')`);
   w.eval(`window.istClock=()=>new Date(2026,2,10,23,40,0)`);
   ok('MCX: marketPhase uses the same close (23:40 closed, 23:20 open)', phaseAt2340 === 'closed' && phaseAt2320 === 'open');
-  w.eval(`delete window.istClock`);                                // fall back to the real helper
+  w.eval(`window.istClock=window.__istReal`);                      // do NOT leak a frozen clock into later tests
 
   /* ---- A1: buy & hold must start at the first tradeable bar ---- */
   const bh = w.eval(`(()=>{const n=120,c=[];for(let i=0;i<n;i++)c.push({t:new Date(Date.now()-(n-i)*86400000),o:100+i,h:100+i+1,l:100+i-1,c:100+i,v:1000});const ind=algoIndicators(c),r=algoBacktest(c,ind,'mean','BOTH',{capital:100000,riskPct:1,feeBps:5,atrMult:1.5,rr:2});return {got:r.buyHold,newBasis:(c.at(-1).c/c[r.warmup+1].o-1)*100,oldBasis:(c.at(-1).c/c[r.warmup].o-1)*100}})()`);
@@ -189,6 +190,100 @@ const OKBODY = { status: 'success', data: [] };
   ok('LOGOUT B4: inspector / market strip state is cleared', after.inspector === null && after.markets === 0);
   ok('LOGOUT B4: the previous session\'s order table is emptied', modalOpen === true && after.orderTable === '' && after.modal === false);
   ok('LOGOUT B4: option-chain state is reset so the next login auto-loads', w.eval(`($.tok===''&&OC.underKey===''&&(OC.chain||[]).length===0&&(OC.keys||[]).length===0)`));
+
+
+  /* ================= Round 3 (2026-10-28, second sweep) ================= */
+
+  /* ---- R3-1: new daily/weekly/monthly bars must land on the broker's
+     period start (IST midnight / Monday / the 1st), not the 09:15 open — a
+     session-open bucket created a duplicate bar for the same period. ---- */
+  const buckets = w.eval(`(()=>{try{const t=Date.parse('2026-10-28T05:00:00Z');/* 10:30 IST, Wed */
+    return [new Date(chartBucketStart(t,{unit:'days',iv:1},null)).toISOString(),
+            new Date(chartBucketStart(t,{unit:'weeks',iv:1},null)).toISOString(),
+            new Date(chartBucketStart(t,{unit:'months',iv:1},null)).toISOString()];}catch(e){return [String(e.message),'',''];}})()`);
+  ok('CHART R3-1: a new daily bar lands on IST midnight (broker stamp)', buckets[0] === '2026-10-27T18:30:00.000Z');
+  ok('CHART R3-1: a new weekly bar lands on Monday 00:00 IST', buckets[1] === '2026-10-25T18:30:00.000Z');
+  ok('CHART R3-1: a new monthly bar lands on the 1st 00:00 IST', buckets[2] === '2026-09-30T18:30:00.000Z');
+  /* the same-period fold must still work: a tick inside today's bar keeps its timestamp */
+  const folded = w.eval(`(()=>{const last={t:new Date('2026-10-27T18:30:00Z')};return new Date(chartBucketStart(Date.parse('2026-10-28T05:00:00Z'),{unit:'days',iv:1},last)).toISOString();})()`);
+  ok('CHART R3-1: a tick inside the current daily bar folds into it', folded === '2026-10-27T18:30:00.000Z');
+
+  /* ---- R3-2: the daily look-ahead guard must use each segment's own close.
+     A CDS (currency) session runs to 17:00 IST, so at 16:00 today's bar is
+     still forming; for equity it closed at 15:30. ---- */
+  const dayBars = `[{t:new Date('2026-10-26T18:30:00Z')},{t:new Date('2026-10-27T18:30:00Z')}]`;
+  w.eval(`window.__dn2=Date.now;Date.now=()=>Date.parse('2026-10-28T10:30:00Z')`);   /* 16:00 IST, Wed */
+  const cdsKept = w.eval(`algoOnlyClosedCandles(${dayBars},'days',1,undefined,{k:'NSE_CDS|USDINR26NOVFUT',segment:'NSE_CDS'}).length`);
+  const eqKept  = w.eval(`algoOnlyClosedCandles(${dayBars},'days',1,undefined,{k:'NSE_EQ|INE002A01018',segment:'NSE_EQ'}).length`);
+  const cdsClose = w.eval(`typeof algoSessionCloseMin==='function'?algoSessionCloseMin({k:'NSE_CDS|USDINR26NOVFUT',segment:'NSE_CDS'}):null`);
+  const mcxClose = w.eval(`typeof algoSessionCloseMin==='function'?algoSessionCloseMin({k:'MCX_FO|CRUDEOIL',segment:'MCX_FO'}):null`);
+  w.eval(`Date.now=window.__dn2`);
+  ok('ALGO R3-2: a currency (CDS) daily bar is still forming at 16:00 IST — excluded', cdsKept === 1);
+  ok('ALGO R3-2: an equity daily bar is final at 16:00 IST — kept', eqKept === 2);
+  ok('ALGO R3-2: session close is per segment (CDS 17:01, MCX 23:31/23:56)', cdsClose === 1021 && (mcxClose === 1411 || mcxClose === 1436));
+
+  /* ---- R3-3: a stale charges failure must not repaint the new selection ---- */
+  w.eval(`$.tok='${DAY}';$.plSeq=0;document.getElementById('plCh').innerHTML=''`);
+  w.eval(`document.getElementById('plY').innerHTML='<option value="2526">2025-26</option>';document.getElementById('plY').value='2526';document.getElementById('plS').value='NSE_EQ'`);
+  stubFetch((u) => {
+    const us = String(u);
+    if (/profit-loss\/charges/.test(us) && /segment=NSE_EQ/.test(us))
+      return new Promise((_, rej) => setTimeout(() => rej(new Error('stale-charges-failure')), 120));
+    if (/profit-loss\/charges/.test(us)) return json(200, { status: 'success', data: { charges_breakdown: { total: 7 } } });
+    if (/profit-loss\/metadata/.test(us)) return json(200, { status: 'success', data: { trades_count: 0 } });
+    if (/profit-loss\/data/.test(us)) return json(200, { status: 'success', data: [] });
+    return json(200, OKBODY);
+  });
+  w.eval('ldPl()');                                     /* ticket 1: NSE_EQ */
+  await new Promise(r => setTimeout(r, 20));
+  w.eval(`document.getElementById('plS').value='MCX';ldPl()`);   /* ticket 2: MCX */
+  await new Promise(r => setTimeout(r, 400));
+  const chargesTxt = w.eval(`document.getElementById('plCh').textContent`);
+  const plSeqNow = w.eval(`$.plSeq`);
+  ok('PL R3-3: a late charges error for the previous segment does not repaint the card',
+    plSeqNow >= 2 && !/stale-charges-failure|Charges unavailable/.test(chargesTxt));
+
+  /* ---- R3-4: the single-position Exit must respect the market clock ---- */
+  stubFetch(() => json(200, { status: 'success', data: { order_ids: ['EXIT1'] } }));
+  w.eval(`$.tok='${DAY}';$.pos=[{instrument_key:'NSE_EQ|INE002A01018',product:'D',quantity:10}];window.__cn=0`);
+  w.confirm = () => { w.eval('window.__cn++'); return true; };
+  /* `new Date()` ignores a Date.now override, so swap the whole Date
+     constructor for the duration of each case. */
+  const setClock = iso => {
+    const Real = w.Date, fixed = Real.parse(iso);
+    class FakeDate extends Real {
+      constructor(...a) { a.length ? super(...a) : super(fixed); }
+      static now() { return fixed; }
+    }
+    w.Date = FakeDate;
+    return () => { w.Date = Real; };
+  };
+  const withClock = async (iso) => {
+    let seen = null;
+    stubFetch((u, o) => { if (String(u).includes('/order/place')) seen = JSON.parse(o.body || '{}'); return json(200, { status: 'success', data: { order_ids: ['EXIT1'] } }); });
+    const restore = setClock(iso);
+    try { await w.eval(`sqO('NSE_EQ|INE002A01018','D',10)`); } finally { restore(); }
+    return seen;
+  };
+  const afterHours = await withClock('2026-10-28T14:30:00Z');   /* 20:00 IST */
+  ok('ORDER R3-4: an after-hours single exit is queued as an AMO, not sent live', !!afterHours && afterHours.is_amo === true && afterHours.order_type === 'MARKET');
+  const inSession = await withClock('2026-10-28T05:00:00Z');    /* 10:30 IST */
+  ok('ORDER R3-4: an in-session single exit still goes out live', !!inSession && inSession.is_amo === false);
+  w.confirm = () => false;
+  const declined = await withClock('2026-10-28T14:30:00Z');
+  ok('ORDER R3-4: declining the after-hours queue sends nothing', declined === null);
+  w.confirm = () => true;
+  const preApi = await withClock('2026-10-27T23:00:00Z');       /* 04:30 IST — API closed */
+  ok('ORDER R3-4: the 00:00-05:30 API window blocks the exit outright', preApi === null);
+  w.confirm = () => true;
+
+  /* ---- R3-5: the 60 s pruner must keep the 5-minute news payloads ---- */
+  const newsKey = 'GET|https://api.upstox.com/v3/news?category=instrument_keys';
+  w.eval(`PRO_HUB.cache.clear();PRO_HUB.cache.set('${newsKey}',{at:Date.now()-120000,data:{ok:1}});
+          PRO_HUB.cache.set('GET|https://api.upstox.com/v2/market-quote/ltp?instrument_key=X',{at:Date.now()-120000,data:{ok:1}});
+          proCachePrune();`);
+  ok('CACHE R3-5: a 2-minute-old news payload survives the 60 s prune (5-min TTL)', w.eval(`PRO_HUB.cache.has('${newsKey}')`));
+  ok('CACHE R3-5: a 2-minute-old 5-second quote is still pruned', !w.eval(`PRO_HUB.cache.has('GET|https://api.upstox.com/v2/market-quote/ltp?instrument_key=X')`));
 
   process.exit(report('deepdive', R) ? 1 : 0);
 })();
