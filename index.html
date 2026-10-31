@@ -1873,13 +1873,16 @@ async function rawUpstoxFetch(ep,{method='GET',body=null,query='',headersAdd={}}
     headers['Content-Type']='application/json';
     opts.body=JSON.stringify(body);
   }
-  let r;
-  try{ r=await fetch(url,opts); }
+  let r,raw;
+  /* AUDIT FIX (REVIEW B5): the abort timer used to be cleared as soon as the
+     headers arrived, so a stalled response body could hang the request
+     forever (and a write looked "in flight" with no timeout). Keep the budget
+     through the body read. */
+  try{ r=await fetch(url,opts); raw=await r.text(); }
   catch(e){
     if(e.name==='AbortError') throw new Error(`Timeout after 15s: ${ep.path} — will retry`);
     throw new Error(`Network/CORS error: ${e.message}`);
   }finally{ if(timeout) clearTimeout(timeout); }
-  const raw=await r.text();
   let d={};
   if(raw){ try{d=JSON.parse(raw);}catch{d={message:raw.slice(0,300)};} }
   if(!r.ok||d.status==='error'){
@@ -1959,7 +1962,7 @@ function proCachePrune(){
 function proHubStatus(state='idle'){
   const api=document.getElementById('psApi'),dot=document.getElementById('psApiDot'),cache=document.getElementById('psCache'),requests=document.getElementById('psRequests'),master=document.getElementById('psMaster');
   if(state!=='error'&&PRO_HUB.lastSuccess&&PRO_HUB.lastError&&PRO_HUB.lastSuccess>PRO_HUB.lastError) PRO_HUB.lastError=0;
-  if(api)api.textContent=state==='busy'?`${PRO_HUB.active} active`:state==='error'?'Error':PRO_HUB.lastSuccess?`OK ${new Date(PRO_HUB.lastSuccess).toLocaleTimeString()}`:'Idle';
+  if(api)api.textContent=state==='busy'?`${PRO_HUB.active} active`:state==='error'?'Error':PRO_HUB.lastSuccess?`OK ${fmtISTTime(PRO_HUB.lastSuccess,true)} IST`:'Idle';
   if(dot)dot.className=`status-dot ${state==='busy'?'busy':state==='error'?'error':PRO_HUB.lastSuccess?'on':''}`;
   if(cache)cache.textContent=`${PRO_HUB.hits} hits`;
   if(requests)requests.textContent=`${PRO_HUB.requests} session`;
@@ -2050,7 +2053,7 @@ if(!/no access token/i.test(error?.message||'')){PRO_HUB.errors++;PRO_HUB.lastEr
 
 async function apiHist(url){
   const bearer=$.tok||$.atok;
-  if(!bearer)throw new Error('No access token');const ttl=url.includes('/intraday/')?10000:120000,key=`HIST|${url}`,now=Date.now(),cached=PRO_HUB.cache.get(key);if(cached&&now-cached.at<ttl){PRO_HUB.hits++;proHubStatus();return cached.data;}if(PRO_HUB.inflight.has(key)){PRO_HUB.hits++;return PRO_HUB.inflight.get(key);}const task=proSchedule(async()=>{let error;for(let attempt=0;attempt<3;attempt++){proHubProgress();try{PRO_HUB.requests++;const ctrl=typeof AbortController!=='undefined'?new AbortController():null;const to=ctrl?setTimeout(()=>ctrl.abort(),15000):null;const r=await fetch(url,{headers:{'Authorization':`Bearer ${bearer}`,'Accept':'application/json'},signal:ctrl?.signal});if(to)clearTimeout(to);const raw=await r.text();let d={};try{d=raw?JSON.parse(raw):{};}catch{d={message:raw.slice(0,300)};}if(d.status==='error'||!r.ok)throw new Error(d.errors?.[0]?.message||d.message||`HTTP ${r.status}`);if($.tok)PRO_HUB.cache.set(key,{at:Date.now(),data:d});PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;proHubStatus();return d;}catch(e){error=e;if(e.name==='AbortError')error=new Error('Historical timeout after 15s — will retry');if(!/429|network|cors|http 5|rate|too many|timeout/i.test(error.message)||attempt===2)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)));}}PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');throw error;});PRO_HUB.inflight.set(key,task);try{return await task;}finally{PRO_HUB.inflight.delete(key);}
+  if(!bearer)throw new Error('No access token');const ttl=url.includes('/intraday/')?10000:120000,key=`HIST|${url}`,now=Date.now(),cached=PRO_HUB.cache.get(key);if(cached&&now-cached.at<ttl){PRO_HUB.hits++;proHubStatus();return cached.data;}if(PRO_HUB.inflight.has(key)){PRO_HUB.hits++;return PRO_HUB.inflight.get(key);}const task=proSchedule(async()=>{let error;for(let attempt=0;attempt<3;attempt++){proHubProgress();try{PRO_HUB.requests++;const ctrl=typeof AbortController!=='undefined'?new AbortController():null;const to=ctrl?setTimeout(()=>ctrl.abort(),15000):null;const r=await fetch(url,{headers:{'Authorization':`Bearer ${bearer}`,'Accept':'application/json'},signal:ctrl?.signal});const raw=await r.text();if(to)clearTimeout(to);let d={};try{d=raw?JSON.parse(raw):{};}catch{d={message:raw.slice(0,300)};}if(d.status==='error'||!r.ok)throw new Error(d.errors?.[0]?.message||d.message||`HTTP ${r.status}`);if($.tok)PRO_HUB.cache.set(key,{at:Date.now(),data:d});PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;proHubStatus();return d;}catch(e){error=e;if(e.name==='AbortError')error=new Error('Historical timeout after 15s — will retry');if(!/429|network|cors|http 5|rate|too many|timeout/i.test(error.message)||attempt===2)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)));}}PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');throw error;});PRO_HUB.inflight.set(key,task);try{return await task;}finally{PRO_HUB.inflight.delete(key);}
 }
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 function jsStr(s){return String(s).replace(/[\\'"<>&`\u2028\u2029]/g,m=>({'\\':'\\\\','\'':'\\\'','"':'\\"','<':'\\x3c','>':'\\x3e','&':'\\x26','`':'\\x60','\u2028':'\\u2028','\u2029':'\\u2029'}[m]));}
@@ -2242,7 +2245,7 @@ async function clearInstrumentMasterCache(){
     try{proUpdateMasterStatus();}catch(e){}
   }
 }
-function instrumentMasterCacheLabel(){const m=$.instrumentMasterMeta;if(!m)return'Full master loaded';const date=m.updatedAt?new Date(m.updatedAt).toLocaleDateString():'',name=m.name||'master';return `${($.instrumentMaster?.length||0).toLocaleString('en-IN')} instruments • ${name}${date?' • '+date:''}`;}
+function instrumentMasterCacheLabel(){const m=$.instrumentMasterMeta;if(!m)return'Full master loaded';const date=m.updatedAt?fmtISTDate(m.updatedAt):'',name=m.name||'master';return `${($.instrumentMaster?.length||0).toLocaleString('en-IN')} instruments • ${name}${date?' • '+date:''}`;}
 async function restoreCachedInstrumentMaster(){
   if($.instrumentMaster||$.masterCacheRestoring)return;$.masterCacheRestoring=true;
   try{const record=await instrumentCacheRead();if(!record?.buffer)return;const count=await instrumentMasterFromBuffer(record.buffer,record.name||'cached master',{name:record.name,source:record.source||'cache',updatedAt:record.updatedAt,cached:true});refreshActiveInstrumentSearch();}
@@ -2462,10 +2465,23 @@ function chooseInstrumentMasterFile(){
    reasons surface via the error passthrough. GTT placement is broker-side (no
    exchange order until the trigger fires), so it works after hours. */
 function istClock(d=new Date()){return new Date(d.getTime()+(d.getTimezoneOffset()+330)*60000);}
+/* AUDIT FIX (session clock): the MCX evening close is 23:30 IST while US
+   daylight-saving time is on and 23:55 otherwise. The two callers disagreed
+   (marketPhase used Mar–Oct, marketHoursOpen used Apr–Oct), so around the
+   March and November switches orders were blocked / polls stopped for up to
+   25 minutes while the exchange was still trading. Compute the real US DST
+   window once and share it. */
+function usDstWindow(year){
+  const start=new Date(Date.UTC(year,2,8));start.setUTCDate(8+((7-start.getUTCDay())%7));   /* 2nd Sunday of March */
+  const end=new Date(Date.UTC(year,10,1));end.setUTCDate(1+((7-end.getUTCDay())%7));        /* 1st Sunday of November */
+  return {start:Date.UTC(year,2,start.getUTCDate(),7,0,0),end:Date.UTC(year,10,end.getUTCDate(),6,0,0)};
+}
+function usDstActive(date=new Date()){const w=usDstWindow(chartISTParts(date).y),t=date.getTime();return t>=w.start&&t<w.end;}
+function mcxCloseMinute(date=new Date()){return usDstActive(date)?23*60+30:23*60+55;}
 function marketPhase(group){
   const d=istClock(),day=d.getDay();if(day===0||day===6)return'closed';
   const m=d.getHours()*60+d.getMinutes(),g=String(group||'').toUpperCase();
-  if(g==='COMM'||g==='MCX'){const close=(d.getMonth()>=2&&d.getMonth()<=9)?1410:1435;return(m>=540&&m<close)?'open':'closed';}
+  if(g==='COMM'||g==='MCX')return(m>=540&&m<mcxCloseMinute(new Date()))?'open':'closed';
   if(g==='CURR')return(m>=540&&m<1020)?'open':'closed';
   return(m>=555&&m<930)?'open':'closed';
 }
@@ -2675,6 +2691,7 @@ async function aExch(){
     sessionStorage.removeItem('u_as');
     const aS=document.getElementById('aS'); if(aS)aS.value='';
     const aCd=document.getElementById('aCd'); if(aCd)aCd.value='';
+    try{PRO_HUB.cache.clear();$.instrumentCache=new Map();}catch(e){}
     ts('Authenticated','s');
     await init();
   }catch(e){
@@ -2692,17 +2709,31 @@ function aTok(){
      stored in localStorage (1-yr, read-only market data), it survives reloads
      and automatically takes over whenever the daily token is missing/expired.
      Pasting a fresh daily token no longer clears it. */
+  /* AUDIT FIX (menu-by-menu / login): the form has both fields but this
+     handler `return`ed after the daily-token branch, so pasting the daily AND
+     the analytics token together silently discarded the persistent one — the
+     next reload landed on the login screen even though a 1-year token had been
+     supplied. Record whichever tokens are present, then boot once. */
+  if(t&&t.length<20)return ts('That does not look like a valid access token','w');
+  if(a&&a.length<20)return ts('That does not look like a valid analytics token','w');
   if(t){
-    if(t.length<20)return ts('That does not look like a valid access token','w');
     $.tok=t;$.ro=false;$.authShiftAt=0;   /* fresh daily token — clear any 401 shift state */
     try{sessionStorage.setItem('u_tok',t);}catch(e){}
     const aT=document.getElementById('aT'); if(aT)aT.value='';
-    init();return;
   }
-  if(a.length<20)return ts('That does not look like a valid analytics token','w');
-  $.atok=a;$.tok='';$.ro=true;
-  try{sessionStorage.setItem('u_atok',a);localStorage.setItem('u_atok',a);sessionStorage.removeItem('u_tok');}catch(e){}
-  const aN=document.getElementById('aN'); if(aN)aN.value='';
+  if(a){
+    $.atok=a;
+    /* REVIEW B4: pasting the analytics token used to tear down an active daily
+       session (read-only forced over a trading token). It is a 1-year fallback,
+       so keep a live daily token alive and only go read-only without one. */
+    if(!t&&!$.tok){$.ro=true;try{sessionStorage.removeItem('u_tok');}catch(e){}}else $.ro=false;
+    try{sessionStorage.setItem('u_atok',a);localStorage.setItem('u_atok',a);}catch(e){}
+    const aN=document.getElementById('aN'); if(aN)aN.value='';
+  }
+  /* AUDIT FIX (REVIEW B3): the REST cache is keyed by path+query, not by
+     identity — a new token could be served the previous session's cached
+     profile/funds/P&L for up to their TTL. Start clean. */
+  try{PRO_HUB.cache.clear();$.instrumentCache=new Map();}catch(e){}
   init();
 }
 function logout(){
@@ -2736,6 +2767,20 @@ function logout(){
   clearTimeout(OC.reconnectTimer);OC.reconnectTimer=null;
   /* Wipe in-memory portfolio so a shared machine does not flash prior data. */
   $.prof=null;$.ords=[];$.oM={};$.pos=[];$.hld=[];$.lq={};$.cd=[];$.algoResult=null;$.activeInstrument=null;
+  /* AUDIT FIX (session hygiene / REVIEW B3): the GTT book, market-status chip,
+     pro-market quotes, inspector quote, next-expiry cache and search cache
+     all survived logout, and the rendered tables kept the previous user's
+     rows until the next successful load. Clear both layers. */
+  $.gts=[];$.mktStatus=null;$.proMarkets={};$.inspectorQuote=null;$.nextExpiryCache=null;$.authShiftAt=0;$.roNotified=null;
+  try{$.instrumentCache?.clear?.();}catch(e){}
+  ['oTB','gTB','tTB','pTB','hTB'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML='';});
+  ['dTP','dRO','dRisk'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML='';});
+  const plB=document.getElementById('plB');if(plB)plB.innerHTML='<div class="large-empty compact-empty"><div class="empty-icon">📑</div><b>No report loaded</b><span>Select a segment and financial year.</span></div>';
+  const plCh=document.getElementById('plCh');if(plCh)plCh.innerHTML='<span class="muted-note">Load a report to fetch charges.</span>';
+  const plChCard=document.getElementById('plChCard');if(plChCard)plChCard.style.display='none';
+  const prB=document.getElementById('prB');if(prB)prB.innerHTML='<div class="emp"><div class="ed">Log in to load your profile</div></div>';
+  const fundR=document.getElementById('fundR');if(fundR)fundR.innerHTML='';
+  const alR=document.getElementById('alR');if(alR)alR.innerHTML='';
   document.body.classList.remove('pro-inspector-open');
   const ap=document.getElementById('AP'),au=document.getElementById('AU');
   if(ap)ap.classList.remove('on');
@@ -2789,7 +2834,11 @@ async function init(){
     // FIX #45: ensure instrument master download available on startup
     setTimeout(()=>{ ensureInstrumentMasterOnStartup().catch(()=>{}); }, isAndroid?3000:1200);
   }catch(e){
-    const tokErr=/token|unauthor|401|auth|expired/i.test(e.message);
+    /* AUDIT FIX (REVIEW B6): the boot catch used a loose /token|auth|expired/
+       test, so unrelated failures (e.g. "No access token — log in first", a
+       CORS error mentioning auth) wiped a perfectly good session. Use the
+       same classifier as REST/WS. */
+    const tokErr=isAuthFailure(e);
     if(tokErr){$.tok='';sessionStorage.removeItem('u_tok');}
     /* TOKEN-SHIFT: daily token dead (or a read-only session hitting any boot
        error) with a persisted Analytics token → remain in the app in read-only
@@ -2853,7 +2902,7 @@ async function ldO(){
 function rnO(){
   let list=$.ords||[];if($.oTab==='open')list=list.filter(isOp);else if($.oTab==='done')list=list.filter(o=>!isOp(o));
   const tb=document.getElementById('oTB');if(!list.length){const desc=$.oTab==='open'?'Keep an eye on orders you place today.':'No orders in this view.';tb.innerHTML=emptyTableRow(9,'📦',"It's empty in here",desc);return;}
-  tb.innerHTML=list.map(o=>{const open=isOp(o),id=String(o.order_id||''),side=String(o.transaction_type||'-');return `<tr><td>${o.order_timestamp?new Date(o.order_timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}):'-'}</td><td><b>${escapeHtml(symbolOf(o))}</b></td><td class="${side==='BUY'?'pp':'pn'}">${escapeHtml(side)}</td><td>${escapeHtml(o.order_type||'-')}</td><td>${toNum(o.quantity)}</td><td>${fmtP(o.price)}</td><td><span class="os" style="background:${open?'var(--yl2)':'var(--gn2)'}">${escapeHtml(o.status||'-')}</span></td><td class="muted-id">${escapeHtml(id.slice(0,12))}</td><td><div class="row-actions">${open?`<button type="button" class="btn bo bs" onclick="opnM('${jsStr(id)}')">Edit</button><button type="button" class="btn br bs" onclick="canO('${jsStr(id)}')">Cancel</button>`:''}<button type="button" class="btn bo bs" onclick="oHist('${jsStr(id)}')">View</button></div></td></tr>`;}).join('');
+  tb.innerHTML=list.map(o=>{const open=isOp(o),id=String(o.order_id||''),side=String(o.transaction_type||'-'),otype=String(o.order_type||'-'),unpriced=otype==='MARKET'||otype==='SL-M';return `<tr><td>${fmtISTTime(o.order_timestamp||o.order_update_timestamp)||'-'}</td><td><b>${escapeHtml(rowSymbol(o))}</b></td><td class="${side==='BUY'?'pp':'pn'}">${escapeHtml(side)}</td><td>${escapeHtml(otype)}</td><td>${toNum(o.quantity)}</td><td>${unpriced?'MKT':fmtP(o.price)}</td><td><span class="os" style="background:${open?'var(--yl2)':'var(--gn2)'}">${escapeHtml(o.status||'-')}</span></td><td class="muted-id">${escapeHtml(id.slice(0,12))}</td><td><div class="row-actions">${open?`<button type="button" class="btn bo bs" onclick="opnM('${jsStr(id)}')">Edit</button><button type="button" class="btn br bs" onclick="canO('${jsStr(id)}')">Cancel</button>`:''}<button type="button" class="btn bo bs" onclick="oHist('${jsStr(id)}')">View</button></div></td></tr>`;}).join('');
 }
 function soT(t,el){$.oTab=t;document.querySelectorAll('#pg-orders .tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');rnO();}
 function opnM(oid){
@@ -2901,8 +2950,14 @@ async function doMd(){
   }catch(e){ts('Mod: '+e.message,'e');}
   finally{$.modBusy=false;}
 }
-async function canO(oid){if(!oid||!confirm('Cancel this order?'))return;try{await upstoxFetch(END.ORDER_CANCEL,{method:'DELETE',query:`?order_id=${encodeURIComponent(oid)}`});ts('Cancelled','s');proInvalidate('/order/');setTimeout(ldO,1000);}catch(e){ts('Can: '+e.message,'e');}}
-async function oHist(oid){if(!oid)return;const ti=document.getElementById('dtTi'),bd=document.getElementById('dtBd');if(ti)ti.textContent='History';if(bd)bd.innerHTML='<div class="ld"><div class="sp"></div></div>';opM('dtM');try{const d=await upstoxFetch(END.ORDER_HISTORY,{query:`?order_id=${encodeURIComponent(oid)}`});if(bd)bd.innerHTML=(d.data||[]).length?(d.data||[]).map(h=>`<div style="padding:5px;border-bottom:1px solid var(--bd);font-size:10px"><b>${escapeHtml(h.status)}</b> Q:${escapeHtml(h.quantity)} P:${escapeHtml(h.price)}${h.status_message?`<div style="color:var(--rd);margin-top:2px">↳ ${escapeHtml(h.status_message)}</div>`:''}</div>`).join(''):'<div class="emp"><div class="ed">No history rows</div></div>';}catch(e){if(bd)bd.innerHTML=`<div class="emp"><div class="ed">${escapeHtml(e.message)}</div></div>`;}}
+async function canO(oid){if(!oid||!confirm('Cancel this order?'))return;
+  /* AUDIT FIX (orders): double-clicking Cancel fired the DELETE twice before
+     the row refreshed; the second call is rejected by the broker and shows a
+     scary error for an order that was cancelled fine. One in-flight cancel. */
+  if($.cancelBusy===oid)return;$.cancelBusy=oid;
+  try{await upstoxFetch(END.ORDER_CANCEL,{method:'DELETE',query:`?order_id=${encodeURIComponent(oid)}`});ts('Cancelled','s');proInvalidate('/order/');setTimeout(ldO,1000);}catch(e){ts('Can: '+e.message,'e');}
+  finally{$.cancelBusy=null;}}
+async function oHist(oid){if(!oid)return;const ti=document.getElementById('dtTi'),bd=document.getElementById('dtBd');if(ti)ti.textContent='History';if(bd)bd.innerHTML='<div class="ld"><div class="sp"></div></div>';opM('dtM');try{const d=await upstoxFetch(END.ORDER_HISTORY,{query:`?order_id=${encodeURIComponent(oid)}`});if(bd)bd.innerHTML=(d.data||[]).length?(d.data||[]).map(h=>`<div style="padding:5px;border-bottom:1px solid var(--bd);font-size:10px"><b>${escapeHtml(h.status)}</b>${fmtISTTime(h.order_timestamp||h.exchange_timestamp||h.last_update_time)?` · ${escapeHtml(fmtISTTime(h.order_timestamp||h.exchange_timestamp||h.last_update_time))}`:''} Q:${escapeHtml(h.quantity)} P:${escapeHtml(h.price)}${h.status_message?`<div style="color:var(--rd);margin-top:2px">↳ ${escapeHtml(h.status_message)}</div>`:''}</div>`).join(''):'<div class="emp"><div class="ed">No history rows</div></div>';}catch(e){if(bd)bd.innerHTML=`<div class="emp"><div class="ed">${escapeHtml(e.message)}</div></div>`;}}
 
 
 
@@ -2997,7 +3052,7 @@ function chartBucketStart(tickMs,cfg,last){
   if(Number.isFinite(lastMs)&&tickMs<lastMs)return null;
   return chartISTSessionStart(tickMs).getTime();
 }
-function chartAxisLabel(value){const d=new Date(value),cfg=TFS.find(t=>t.id===$.cTF);return cfg&&(cfg.unit==='minutes'||cfg.unit==='hours')?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString(undefined,{day:'2-digit',month:'short'});}
+function chartAxisLabel(value){const cfg=TFS.find(t=>t.id===$.cTF);return cfg&&(cfg.unit==='minutes'||cfg.unit==='hours')?fmtISTTime(value):fmtISTDay(value);}
 function chartUpdateMeta(source){
   const cfg=TFS.find(t=>t.id===$.cTF),last=$.cd?.at(-1),bars=document.getElementById('cBars'),src=document.getElementById('cSource'),state=document.getElementById('cCandleState');if(src&&source)src.textContent=source;if(bars)bars.textContent=`${($.cd||[]).length.toLocaleString('en-IN')} candles`;
   if(state){if(!last)state.textContent='—';else{const fixed=chartIntervalMs(cfg),next=fixed?last.t.getTime()+fixed:0,remain=next-Date.now();state.textContent=last.live?(remain>0&&fixed?`LIVE ${cfg.lb} • ${Math.floor(remain/60000)}:${String(Math.floor(remain/1000)%60).padStart(2,'0')} left`:`LIVE ${cfg.lb} candle`):`Latest ${chartAxisLabel(last.t)}`;}}
@@ -3006,7 +3061,10 @@ function chartScheduleDraw(){
   if(document.hidden||!document.getElementById('pg-chart')?.classList.contains('on')||$.chartDrawTimer)return;const mobile=ocIsMobile(),delay=mobile?280:100,analysisGap=mobile?2500:900;$.chartDrawTimer=setTimeout(()=>{$.chartDrawTimer=null;$.chartLastRender=Date.now();drawC();const now=Date.now();if(!$.chartAnalysisAt||now-$.chartAnalysisAt>analysisGap){$.chartAnalysisAt=now;anlC();}},delay);
 }
 function chartApplyTick(ltp,tickMs,ltq,vtt,ltt){
-  if(!Number.isFinite(ltp)||!($.cd||[]).length)return;const cfg=TFS.find(t=>t.id===$.cTF);if(!cfg)return;let last=$.cd.at(-1),bucket=chartBucketStart(tickMs,cfg,last);if(bucket==null)return;const lastBucket=last.t.getTime(),isNew=bucket>lastBucket;let visualChange=isNew;
+  if(!Number.isFinite(ltp)||!($.cd||[]).length)return;const cfg=TFS.find(t=>t.id===$.cTF);if(!cfg)return;let last=$.cd.at(-1),bucket=chartBucketStart(tickMs,cfg,last);if(bucket==null)return;const lastBucket=last.t.getTime(),isNew=bucket>lastBucket;/* AUDIT FIX (chart): a replayed or out-of-order tick older than the candle
+  being built used to overwrite its live high/low/close with stale prices
+  (a 09:30 tick arriving late rewrote the 10:00 candle). The bucket is the
+  authority — anything before it is history and is ignored. */if(bucket<lastBucket)return;let visualChange=isNew;
   if(isNew){last={t:new Date(bucket),o:ltp,h:ltp,l:ltp,c:ltp,v:Number.isFinite(ltq)?ltq:0,live:true};$.cd.push(last);if($.cd.length>1800)$.cd.splice(0,$.cd.length-1800);$.chartVol={bucket,baseVolume:last.v,baseVtt:Number.isFinite(vtt)?vtt:null,lastLtt:ltt};}
   else{
     const previous=last.c;visualChange=ltp!==previous;last.h=Math.max(last.h,ltp);last.l=Math.min(last.l,ltp);last.c=ltp;last.live=true;
@@ -3014,7 +3072,7 @@ function chartApplyTick(ltp,tickMs,ltq,vtt,ltt){
     if(Number.isFinite(vtt)&&Number.isFinite($.chartVol.baseVtt))last.v=$.chartVol.baseVolume+Math.max(0,vtt-$.chartVol.baseVtt);else if(Number.isFinite(ltq)&&ltt&&ltt!==$.chartVol.lastLtt){last.v=toNum(last.v)+ltq;$.chartVol.lastLtt=ltt;}
     const info=document.getElementById('cInf');if(info&&ltp!==previous){info.classList.remove('ws-flash-up','ws-flash-down','ws-flash-up2','ws-flash-down2');info._fb=!info._fb;info.classList.add((ltp>previous?'ws-flash-up':'ws-flash-down')+(info._fb?'2':''));}
   }
-  const stamp=document.getElementById('cLastTick');if(stamp)stamp.textContent=`Tick ${new Date(tickMs).toLocaleTimeString()}`;chartUpdateMeta();if(visualChange||!$.chartLastRender||Date.now()-$.chartLastRender>500)chartScheduleDraw();
+  const stamp=document.getElementById('cLastTick');if(stamp)stamp.textContent=`Tick ${fmtISTTime(tickMs,true)} IST`;chartUpdateMeta();if(visualChange||!$.chartLastRender||Date.now()-$.chartLastRender>500)chartScheduleDraw();
 }
 
 function chartExchangeBucket(tickMs,cfg){const fixed=chartIntervalMs(cfg);if(fixed){const anchor=chartISTSessionStart(tickMs).getTime();return anchor+Math.max(0,Math.floor((tickMs-anchor)/fixed))*fixed;}return chartISTSessionStart(tickMs).getTime();}
@@ -3026,11 +3084,18 @@ function chartApplyFeedOHLC(mf,tickMs){const cfg=TFS.find(x=>x.id===$.cTF),ohlc=
    MCX commodities: 09:00-23:30 IST (Apr-Oct, US DST) / 09:00-23:55 (Nov-Mar).
    chartMarketOpen() follows the CHART's instrument; the shared-WS watchdog
    uses anySharedMarketOpen(); the option chain uses ocMarketOpen(). */
-function marketHoursOpen(key){const p=chartISTParts(Date.now()),day=new Date(Date.UTC(p.y,p.m-1,p.d)).getUTCDay(),mins=p.h*60+p.mi;if(day<1||day>5)return false;if(/^MCX/i.test(String(key||''))){const end=(p.m>=4&&p.m<=10)?23*60+30:23*60+55;return mins>=540&&mins<=end;}return mins>=555&&mins<=940;}
+function marketHoursOpen(key){const k=String(key||''),p=chartISTParts(Date.now()),day=new Date(Date.UTC(p.y,p.m-1,p.d)).getUTCDay(),mins=p.h*60+p.mi;if(day<1||day>5)return false;
+  /* AUDIT FIX (session clock): MCX close follows US DST via the shared helper. */
+  if(/^MCX/i.test(k))return mins>=540&&mins<=mcxCloseMinute(new Date());
+  /* AUDIT FIX (session clock): currency derivatives (CDS/BCD) trade 09:00–17:00
+     IST; the old NSE-only window marked a live CDS chart/chain closed after
+     15:40, so live polling and reconciliation stopped mid-session. */
+  if(/^(CDS|BCD)_/i.test(k))return mins>=540&&mins<=1020;
+  return mins>=555&&mins<=940;}
 function anySharedMarketOpen(){if(marketHoursOpen(''))return true;const keys=[...(($.wl||[]).map(w=>w.k)),$.cKey,$.activeInstrument?.k,...((typeof OC!=='undefined'&&OC.fallback)?(OC.keys||[]):[])];return keys.some(k=>k&&/^MCX/i.test(String(k))&&marketHoursOpen(k));}
 function ocMarketOpen(){return marketHoursOpen(typeof OC!=='undefined'?(OC.underKey||''):'');}
 function chartMarketOpen(){return marketHoursOpen($.cKey||'');}
-async function chartFetchFreshIntraday(url){return proSchedule(async()=>{const bearer=$.tok||$.atok;let error;for(let attempt=0;attempt<3;attempt++){proHubProgress();try{PRO_HUB.requests++;proHubStatus('busy');const ctrl=typeof AbortController!=='undefined'?new AbortController():null;const to=ctrl?setTimeout(()=>ctrl.abort(),15000):null;const r=await fetch(url,{headers:{Authorization:`Bearer ${bearer}`,Accept:'application/json'},signal:ctrl?.signal});if(to)clearTimeout(to);const raw=await r.text();let d={};try{d=JSON.parse(raw);}catch{d={message:raw.slice(0,250)};}if(!r.ok||d.status==='error')throw new Error(d.errors?.[0]?.message||d.message||`HTTP ${r.status}`);PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;proHubStatus();return d;}catch(e){error=e;if(e.name==='AbortError')error=new Error('Chart intraday timeout after 15s — will retry');const retry=/429|network|cors|http 5|rate|too many|timeout/i.test(error.message);if(!retry||attempt===2)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)));}}PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');throw error;});}
+async function chartFetchFreshIntraday(url){return proSchedule(async()=>{const bearer=$.tok||$.atok;let error;for(let attempt=0;attempt<3;attempt++){proHubProgress();try{PRO_HUB.requests++;proHubStatus('busy');const ctrl=typeof AbortController!=='undefined'?new AbortController():null;const to=ctrl?setTimeout(()=>ctrl.abort(),15000):null;const r=await fetch(url,{headers:{Authorization:`Bearer ${bearer}`,Accept:'application/json'},signal:ctrl?.signal});const raw=await r.text();if(to)clearTimeout(to);let d={};try{d=JSON.parse(raw);}catch{d={message:raw.slice(0,250)};}if(!r.ok||d.status==='error')throw new Error(d.errors?.[0]?.message||d.message||`HTTP ${r.status}`);PRO_HUB.lastSuccess=Date.now();PRO_HUB.lastError=0;proHubStatus();return d;}catch(e){error=e;if(e.name==='AbortError')error=new Error('Chart intraday timeout after 15s — will retry');const retry=/429|network|cors|http 5|rate|too many|timeout/i.test(error.message);if(!retry||attempt===2)break;await new Promise(r=>setTimeout(r,350*Math.pow(2,attempt)));}}PRO_HUB.errors++;PRO_HUB.lastError=Date.now();proHubStatus('error');throw error;});}
 async function chartReconcileIntraday(){if($.chartReconcileBusy||(!$.tok&&!$.atok)||!$.cKey||$.chartLoading)return;const cfg=TFS.find(x=>x.id===$.cTF);if(!cfg||!['minutes','hours','days'].includes(cfg.unit))return;const symKey=$.cKey,tfId=$.cTF;$.chartReconcileBusy=true;try{const url=`${API_BASE}${END.HIST_INTRA}/${encodeURIComponent(symKey)}/${cfg.unit}/${cfg.iv}`,started=Date.now(),d=await chartFetchFreshIntraday(url),fresh=chartParseCandles(d.data?.candles||[]);if(!fresh.length||$.cKey!==symKey||$.cTF!==tfId)return;const map=new Map(($.cd||[]).map(x=>[x.t.getTime(),x])),lastKey=$.cd?.at(-1)?.t?.getTime();fresh.forEach(x=>{const key=x.t.getTime(),old=map.get(key);if(old&&key===lastKey&&old.live){map.set(key,{...x,h:Math.max(x.h,old.h),l:Math.min(x.l,old.l),c:$.chartLastTickMs>=started?old.c:x.c,v:Math.max(x.v,old.v),live:true,reconciled:true});}else map.set(key,{...x,reconciled:true});});$.cd=[...map.values()].sort((a,b)=>a.t-b.t).slice(-1800);$.chartLastReconcile=Date.now();const src=document.getElementById('cSource');if(src)src.textContent=`Historical + intraday canonical • reconciled ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;chartUpdateMeta();chartScheduleDraw();}
   catch(e){console.warn('Chart reconciliation',e.message);}finally{$.chartReconcileBusy=false;}}
 function scheduleChartReconciliation(){clearInterval($.chartReconcileTimer);const cfg=TFS.find(x=>x.id===$.cTF);if(!cfg||!['minutes','hours','days'].includes(cfg.unit))return;const fixed=chartIntervalMs(cfg),period=Math.max(300000,Math.min(900000,fixed||900000));$.chartReconcileTimer=setInterval(()=>{if($.chartLiveEnabled&&document.getElementById('pg-chart')?.classList.contains('on')&&chartMarketOpen())chartReconcileIntraday();},period);}
@@ -3161,7 +3226,7 @@ function ocProcessFeed(feedResp){
   }
   const feeds=feedResp.feeds||{};
   const stamp=Number(feedResp.currentTs);
-  const now=Number.isFinite(stamp)&&stamp>0?new Date(stamp).toLocaleTimeString():new Date().toLocaleTimeString();
+  const now=fmtISTTime(Number.isFinite(stamp)&&stamp>0?stamp:Date.now(),true)+' IST';
   const tick=document.getElementById('ocTick');
   if(tick)tick.textContent=now+' '+(feedResp.type===0?'snapshot':'live');
   const map=ocInstrumentMap();
@@ -3378,6 +3443,57 @@ if(typeof CSS.escape!=='function'){
 // ===== Reliability, validation and current-Upstox logic fixes =====
 function toNum(v,fallback=0){const n=Number(v);return Number.isFinite(n)?n:fallback;}
 function symbolOf(x){return x?.trading_symbol||x?.tradingsymbol||x?.symbol||'?';}
+/* MENU FIX (Orders/GTT/Trades): several portfolio rows carry only an
+   instrument_token (GTT list always, some trade rows), or no symbol at all.
+   symbolOf() answers '?' for those and the tables printed a bare "?".
+   Resolve the human name through instrument master → built-in DB → watchlist,
+   then fall back to the key's symbol part. */
+function instrumentLabel(key,fallback=''){
+  const k=String(key||'').trim();if(!k)return fallback;
+  const hit=($.instrumentMaster?.find(x=>x.k===k))||DB.find(x=>x.k===k)||($.wl||[]).find(w=>w.k===k);
+  if(hit&&hit.s)return hit.s;
+  const tail=k.split('|').slice(1).join('|');
+  return tail||k||fallback;
+}
+function rowSymbol(x,fallback='-'){
+  const s=symbolOf(x);if(s&&s!=='?')return s;
+  return instrumentLabel(x?.instrument_key||x?.instrument_token,x?.isin||'')||fallback;
+}
+/* MENU FIX (Orders/Trades): exchange timestamps must read in IST for every
+   viewer. Rows used toLocaleTimeString() (viewer timezone → 10:15 IST showed
+   as 04:45 on a UTC machine) and the trade book printed the raw ISO string.
+   Accepts epoch seconds, epoch millis, or an ISO/date string. */
+function istDateOf(value){
+  if(value==null||value==='')return null;
+  const s=String(value).trim();let t=NaN;
+  if(/^\d{10}$/.test(s))t=Number(s)*1000;
+  else if(/^\d{13}$/.test(s))t=Number(s);
+  else t=Date.parse(s);
+  if(!Number.isFinite(t))return null;
+  const d=new Date(t);return Number.isNaN(d.getTime())?null:d;
+}
+function fmtISTTime(value,withSeconds=false){
+  const d=istDateOf(value);if(!d)return '';
+  try{return new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',...(withSeconds?{second:'2-digit'}:{}),hourCycle:'h23'}).format(d);}
+  catch(e){return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
+}
+function fmtISTDate(value){
+  const d=istDateOf(value);if(!d)return '';
+  try{return new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',year:'numeric'}).format(d);}
+  catch(e){return d.toLocaleDateString();}
+}
+/* Compact IST variants for chart axes, crosshair labels and status chips.
+   Same rule as fmtISTTime: an exchange timestamp is never re-rendered in the
+   viewer's timezone (a UTC browser used to draw the 09:15 open at 03:45). */
+function istFmt(value,opts){
+  const d=istDateOf(value);if(!d)return '';
+  try{return new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',...opts}).format(d);}
+  catch(e){return d.toLocaleString();}
+}
+function fmtISTDay(value){return istFmt(value,{day:'2-digit',month:'short'});}
+function fmtISTDayTime(value){return istFmt(value,{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});}
+function fmtISTDayFull(value){return istFmt(value,{weekday:'short',day:'2-digit',month:'short',year:'numeric'});}
+function fmtISTDayShort(value){return istFmt(value,{day:'2-digit',month:'short',year:'2-digit'});}
 /* Upstox caps full/full_d30 subscriptions at 50 instrument keys per socket.
    The dedicated option socket may hold more, but the FALLBACK rides the shared
    market socket - trim to the 50 keys nearest ATM (underlying first) so the
@@ -3483,6 +3599,8 @@ async function ldD(){
     const s=fundsSummary(f.value.response.data);
     document.getElementById('dM').textContent=fm(s.available);
     document.getElementById('dU').textContent=fm(s.used);
+    /* keep the numbers: renderProDashboard used to re-parse its own ₹ strings */
+    $.dashFunds={used:toNum(s.used),avail:toNum(s.available)};
   }
   if(p.status==='fulfilled'){
     $.pos=Array.isArray(p.value.data)?p.value.data:[];
@@ -3777,7 +3895,9 @@ async function sqO(t,pr,q){
   const _mk=(meta.freeze_quantity||meta.freeze)?null:($.instrumentMaster||[]).find(x=>x.k===t);
   const freeze=toNum(meta.freeze_quantity||meta.freeze||(_mk&&!/^MCX_/i.test(t)?_mk.freeze:0)||0);
   const willSlice=freeze>0&&qty>freeze;
-  const sym=symbolOf(meta)||t;
+  /* symbolOf() answers '?' for a position row without a trading_symbol, and
+     '?' is truthy — the old `symbolOf(meta)||t` fallback never ran. */
+  const sym=rowSymbol(meta,t);
   if(!confirm(`EXIT ${side} ${qty} ${sym} (${product} MARKET)${willSlice?`\nQuantity exceeds freeze ${freeze} — will slice.`:''}\nThis cannot be undone.`))return;
   $.exitBusy=true;
   try{
@@ -3937,7 +4057,7 @@ async function ldG(){
     const d=await upstoxFetch(END.GTT_LIST),list=Array.isArray(d.data)?d.data:[],tb=document.getElementById('gTB');
     $.gts=list;
     if(!list.length){tb.innerHTML=emptyTableRow(8,'⏰','No GTT orders','Create a trigger-based order when you need one.');return;}
-    tb.innerHTML=list.map(g=>{const rule=g.rules?.[0]||{},id=String(g.gtt_order_id||'');return `<tr><td class="muted-id">${escapeHtml(id.slice(0,16))}</td><td><b>${escapeHtml(symbolOf(g))}</b></td><td class="${(g.transaction_type||rule.transaction_type)==='BUY'?'pp':'pn'}">${escapeHtml(g.transaction_type||rule.transaction_type||'-')}</td><td>${escapeHtml(g.type||'-')}</td><td>${fmtP(rule.trigger_price)}</td><td>${toNum(g.quantity)}</td><td><span class="os">${escapeHtml(rule.status||'-')}</span></td><td><div class="row-actions"><button type="button" class="btn bo bs" onclick="modG('${jsStr(id)}')">Edit</button><button type="button" class="btn br bs" onclick="dlG('${jsStr(id)}')">Cancel</button></div></td></tr>`;}).join('');
+    tb.innerHTML=list.map(g=>{const rule=(g.rules||[]).find(r=>r.strategy==='ENTRY')||g.rules?.[0]||{},id=String(g.gtt_order_id||''),gside=String(g.transaction_type||rule.transaction_type||'-'),gstat=String(rule.status||g.status||'-'),openG=/^(open|active|trigger pending|pending)$/i.test(gstat);return `<tr><td class="muted-id">${escapeHtml(id.slice(0,16))}</td><td><b>${escapeHtml(rowSymbol(g))}</b></td><td class="${gside==='BUY'?'pp':'pn'}">${escapeHtml(gside)}</td><td>${escapeHtml(g.type||'-')}</td><td>${fmtP(rule.trigger_price)}</td><td>${toNum(g.quantity)}</td><td><span class="os" style="background:${openG?'var(--yl2)':'var(--gn2)'}">${escapeHtml(gstat)}</span></td><td><div class="row-actions"><button type="button" class="btn bo bs" onclick="modG('${jsStr(id)}')">Edit</button><button type="button" class="btn br bs" onclick="dlG('${jsStr(id)}')">Cancel</button></div></td></tr>`;}).join('');
   }catch(e){ts('GTT: '+e.message,'e');}
 }
 async function dlG(id){if(!id||!confirm('Cancel this GTT order?'))return;try{await upstoxFetch(END.GTT_CANCEL,{method:'DELETE',body:{gtt_order_id:id}});ts('GTT cancelled','s');ldG();}catch(e){ts('GTT cancel: '+e.message,'e');}}
@@ -3949,7 +4069,7 @@ async function ldP(){
     const totals=$.pos.reduce((a,p)=>{a.total+=toNum(p.pnl);a.real+=toNum(p.realised??p.realized);a.unreal+=toNum(p.unrealised??p.unrealized);return a;},{total:0,real:0,unreal:0});
     document.getElementById('pTP').innerHTML=fp(totals.total);document.getElementById('pRP').innerHTML=fp(totals.real);document.getElementById('pUP').innerHTML=fp(totals.unreal);
     const tb=document.getElementById('pTB');if(!$.pos.length){tb.innerHTML=emptyTableRow(7,'📈','No positions','Your open and closed positions will appear here.');return;}
-    tb.innerHTML=$.pos.map(p=>`<tr><td><b>${escapeHtml(symbolOf(p))}</b></td><td>${escapeHtml(p.product||'-')}</td><td>${toNum(p.quantity)}</td><td>${fmtP(p.average_price)}</td><td>${fmtP(p.last_price)}</td><td>${fp(p.pnl)}</td><td>${toNum(p.quantity)!==0?`<button type="button" class="btn bo bs" onclick="sqO('${jsStr(p.instrument_key||p.instrument_token||'')}','${jsStr(p.product||'D')}',${toNum(p.quantity)})">Exit</button>`:'-'}</td></tr>`).join('');
+    tb.innerHTML=$.pos.map(p=>`<tr><td><b>${escapeHtml(rowSymbol(p))}</b></td><td>${escapeHtml(p.product||'-')}</td><td>${toNum(p.quantity)}</td><td>${fmtP(p.average_price)}</td><td>${fmtP(p.last_price)}</td><td>${fp(p.pnl)}</td><td>${toNum(p.quantity)!==0?`<button type="button" class="btn bo bs" onclick="sqO('${jsStr(p.instrument_key||p.instrument_token||'')}','${jsStr(p.product||'D')}',${toNum(p.quantity)})">Exit</button>`:'-'}</td></tr>`).join('');
   }catch(e){ts('Positions: '+e.message,'e');}
 }
 
@@ -3960,7 +4080,7 @@ async function ldH(){
     $.hld.forEach(h=>{const q=toNum(h.quantity),avg=toNum(h.average_price),last=toNum(h.last_price??h.close_price);invested+=avg*q;current+=last*q;});const pnl=current-invested;
     document.getElementById('hI').textContent=fm(invested);document.getElementById('hC').textContent=fm(current);document.getElementById('hP').innerHTML=fp(pnl);
     const tb=document.getElementById('hTB');if(!$.hld.length){tb.innerHTML=emptyTableRow(7,'💼','No holdings','Your long-term investments will appear here.');return;}
-    tb.innerHTML=$.hld.map(h=>{const q=toNum(h.quantity),avg=toNum(h.average_price),last=toNum(h.last_price??h.close_price),i=avg*q,c=last*q,p=c-i,pct=i?p/i*100:0;return `<tr><td><b>${escapeHtml(symbolOf(h))}</b></td><td>${q}</td><td>${avg.toFixed(2)}</td><td>${last.toFixed(2)}</td><td>${fm(c)}</td><td>${fp(p)}</td><td class="${pct>=0?'pp':'pn'}">${pct>=0?'+':''}${pct.toFixed(2)}%</td></tr>`;}).join('');
+    tb.innerHTML=$.hld.map(h=>{const q=toNum(h.quantity),avg=toNum(h.average_price),last=toNum(h.last_price??h.close_price),i=avg*q,c=last*q,p=c-i,pct=i?p/i*100:0;return `<tr><td><b>${escapeHtml(rowSymbol(h))}</b></td><td>${q}</td><td>${avg.toFixed(2)}</td><td>${last.toFixed(2)}</td><td>${fm(c)}</td><td>${fp(p)}</td><td class="${pct>=0?'pp':'pn'}">${pct>=0?'+':''}${pct.toFixed(2)}%</td></tr>`;}).join('');
   }catch(e){ts('Holdings: '+e.message,'e');}
 }
 
@@ -4109,7 +4229,7 @@ function chartToggleFullscreen(){const shell=document.querySelector('.live-chart
 function chartHeikin(candles){let po=null,pc=null;return candles.map((d,i)=>{const c=(d.o+d.h+d.l+d.c)/4,o=i?(po+pc)/2:(d.o+d.c)/2,x={...d,o,h:Math.max(d.h,o,c),l:Math.min(d.l,o,c),c,_raw:d};po=o;pc=c;return x;});}
 function chartVWAP(candles){const cfg=TFS.find(x=>x.id===$.cTF),intraday=cfg&&['minutes','hours'].includes(cfg.unit),out=[];let pv=0,vol=0,key='';candles.forEach(d=>{const k=intraday?chartPeriodKey(d.t,{unit:'days'}):'anchored';if(k!==key){key=k;pv=0;vol=0;}const v=toNum(d.v),typ=(d.h+d.l+d.c)/3;if(v>0){pv+=typ*v;vol+=v;}out.push(vol?pv/vol:null);});return out;}
 function chartSupertrend(candles,period=10,multiplier=3){const atr=algoATR(candles,period),line=Array(candles.length).fill(null),trend=Array(candles.length).fill(0),fu=Array(candles.length).fill(null),fl=Array(candles.length).fill(null);for(let i=0;i<candles.length;i++){if(atr[i]==null)continue;const mid=(candles[i].h+candles[i].l)/2,bu=mid+multiplier*atr[i],bl=mid-multiplier*atr[i];fu[i]=i&&fu[i-1]!=null?((bu<fu[i-1]||candles[i-1].c>fu[i-1])?bu:fu[i-1]):bu;fl[i]=i&&fl[i-1]!=null?((bl>fl[i-1]||candles[i-1].c<fl[i-1])?bl:fl[i-1]):bl;if(!i||line[i-1]==null){line[i]=candles[i].c>=fl[i]?fl[i]:fu[i];}else if(line[i-1]===fu[i-1])line[i]=candles[i].c<=fu[i]?fu[i]:fl[i];else line[i]=candles[i].c>=fl[i]?fl[i]:fu[i];trend[i]=candles[i].c>=line[i]?1:-1;}return{line,trend};}
-function chartFormatCrossTime(value){const cfg=TFS.find(x=>x.id===$.cTF),d=new Date(value);return cfg&&['minutes','hours'].includes(cfg.unit)?d.toLocaleString(undefined,{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString(undefined,{weekday:'short',day:'2-digit',month:'short',year:'numeric'});}
+function chartFormatCrossTime(value){const cfg=TFS.find(x=>x.id===$.cTF);return cfg&&['minutes','hours'].includes(cfg.unit)?fmtISTDayTime(value):fmtISTDayFull(value);}
 function chartUpdateCrossTooltip(layout,index,x,y){
   const box=document.getElementById('cCrossInfo');
   if(!box||index<layout.start||index>=layout.end){if(box)box.hidden=true;return;}
@@ -4283,7 +4403,7 @@ function algoRegimeAt(i,ind,candles){
 function algoBacktest(candles,ind,strategy,direction,settings){
   const meta=algoStrategyMeta(strategy),warmup=strategy==='trend'?200:55,maxHold=strategy==='mean'?18:strategy==='breakout'?40:65;
   let equity=settings.capital,pos=null,trades=[],curve=[],exposure=0,cooldownUntil=-1;const fee=settings.feeBps/10000,cooldownBars=strategy==='mean'?2:1;
-  const closePos=(price,reason,index)=>{if(!pos)return false;const gross=(pos.side==='LONG'?price-pos.entry:pos.entry-price)*pos.qty,cost=(pos.entry+price)*pos.qty*fee,pnl=gross-cost,before=equity;equity+=pnl;trades.push({side:pos.side,entry:pos.entry,exit:price,qty:pos.qty,pnl,cost,r:pnl/pos.riskAmount,returnPct:before?pnl/before*100:0,entryIndex:pos.entryIndex,exitIndex:index,entryTime:candles[pos.entryIndex].t,exitTime:candles[index].t,reason,notional:pos.entry*pos.qty,capitalBefore:before});cooldownUntil=index+cooldownBars;pos=null;return true;};
+  const closePos=(price,reason,index)=>{if(!pos)return false;const gross=(pos.side==='LONG'?price-pos.entry:pos.entry-price)*pos.qty,cost=(pos.entry+price)*pos.qty*fee,pnl=gross-cost,before=equity;equity+=pnl;trades.push({side:pos.side,entry:pos.entry,exit:price,qty:pos.qty,pnl,cost,r:pos.qty*pos.riskPerUnit?pnl/(pos.qty*pos.riskPerUnit):0,returnPct:before?pnl/before*100:0,entryIndex:pos.entryIndex,exitIndex:index,entryTime:candles[pos.entryIndex].t,exitTime:candles[index].t,reason,notional:pos.entry*pos.qty,capitalBefore:before});cooldownUntil=index+cooldownBars;pos=null;return true;};
   for(let i=warmup+1;i<candles.length;i++){
     const bar=candles[i],prev=algoScoreAt(i-1,strategy,ind,candles),prevSignal=prev.score;let exitedThisBar=false;
     if(pos){
@@ -4303,7 +4423,7 @@ function algoBacktest(candles,ind,strategy,direction,settings){
              UI. Such setups need an unrealistic win rate just to break even;
              they no longer execute. */
           const plannedReward=side==='LONG'?target-entry:entry-target;
-          if(plannedReward>=riskDist)pos={side,entry,qty,riskAmount,entryIndex:i,stop:side==='LONG'?entry-riskDist:entry+riskDist,target};}
+          if(plannedReward>=riskDist)pos={side,entry,qty,riskAmount,riskPerUnit:riskDist,entryIndex:i,stop:side==='LONG'?entry-riskDist:entry+riskDist,target};}
       }
     }
     if(pos){
@@ -4321,7 +4441,7 @@ function algoBacktest(candles,ind,strategy,direction,settings){
   /* AUDIT FIX (algo): exposure was divided by candles.length-warmup, but the
      loop scores bars warmup+1 .. length-1 (length-warmup-1 bars) — the metric
      understated time-in-market. Use the exact scored-bar count. */
-  return{trades,curve,endEquity:equity,netReturn:(equity/settings.capital-1)*100,maxDD,winRate:trades.length?wins.length/trades.length*100:0,profitFactor:grossLoss?grossWin/grossLoss:(grossWin?Infinity:0),expectancyR:algoMean(rValues),sharpe:sqn,exposure:candles.length>warmup+1?exposure/(candles.length-warmup-1)*100:0,buyHold:candles.length>1?(candles.at(-1).c/candles[Math.min(warmup,candles.length-2)].o-1)*100:0,totalCosts:trades.reduce((s,x)=>s+x.cost,0),warmup};
+  return{trades,curve,endEquity:equity,netReturn:(equity/settings.capital-1)*100,maxDD,winRate:trades.length?wins.length/trades.length*100:0,profitFactor:grossLoss?grossWin/grossLoss:(grossWin?Infinity:0),expectancyR:algoMean(rValues),sharpe:sqn,exposure:candles.length>warmup+1?exposure/(candles.length-warmup-1)*100:0,buyHold:candles.length>1?(candles.at(-1).c/candles[Math.min(warmup+1,candles.length-1)].o-1)*100:0,totalCosts:trades.reduce((s,x)=>s+x.cost,0),warmup};
 }
 
 function algoISTDateKey(value){const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(value)),get=k=>parts.find(x=>x.type===k)?.value||'';return `${get('year')}-${get('month')}-${get('day')}`;}
@@ -4331,9 +4451,16 @@ function algoOnlyClosedCandles(candles,unit,interval,sessionCloseMin){
     const today=algoISTDateKey(now),timeParts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(now)),hour=Number(timeParts.find(x=>x.type==='hour')?.value||0),minute=Number(timeParts.find(x=>x.type==='minute')?.value||0),marketClosed=hour*60+minute>=(Number.isFinite(sessionCloseMin)?sessionCloseMin:931);   /* NSE/BSE 15:31 IST; MCX closes 23:30/23:55 so today's partial daily bar must not count as closed */
     return candles.filter(x=>{const key=algoISTDateKey(x.t);return key<today||(key===today&&marketClosed);});
   }
+  /* AUDIT FIX (algo): weekly/monthly bars were returned unfiltered, so the
+     IN-PROGRESS week/month candle leaked into the live signal and backtest —
+     the same look-ahead the daily path already guards. Drop the current period. */
+  if(unit==='weeks'||unit==='months'){
+    const key=v=>chartPeriodKey(v,{unit}),current=key(now);
+    return candles.filter(x=>key(x.t)<current);
+  }
   return candles;
 }
-function algoDate(v){const d=new Date(v);return Number.isNaN(d.getTime())?'-':d.toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'2-digit'});}
+function algoDate(v){return fmtISTDayShort(v)||'-';}
 function algoValue(v,digits=2){return Number.isFinite(Number(v))?Number(v).toFixed(digits):'—';}
 function algoTechCard(label,value,note='',tone=''){return `<div class="tech-item"><span>${escapeHtml(label)}</span><b class="${tone}">${escapeHtml(value)}</b>${note?`<small>${escapeHtml(note)}</small>`:''}</div>`;}
 function drawAlgoEquity(curve,startCapital){
@@ -4586,7 +4713,12 @@ async function ocLoadExpiries(){
 function prepareOCChain(raw,mode){
   const chain=(raw||[]).slice().sort((a,b)=>toNum(a.strike_price)-toNum(b.strike_price));if(!chain.length)throw new Error('No option-chain data returned');
   OC.chain=chain;OC.live={};OC.map=null;OC.spot=toNum(chain.find(r=>r.underlying_spot_price!=null)?.underlying_spot_price);OC.spotCp=0;
-  let atmIdx=0,diff=Infinity;chain.forEach((r,i)=>{const d=Math.abs(toNum(r.strike_price)-OC.spot);if(d<diff){diff=d;atmIdx=i;}});OC.atm=toNum(chain[atmIdx].strike_price);
+  /* AUDIT FIX (OC): with no underlying_spot_price every strike is equidistant
+     from 0, so the ATM landed on the LOWEST strike and the ladder showed the
+     bottom of the chain (nothing near the money). Centre on the middle strike. */
+  let atmIdx=Math.floor((chain.length-1)/2),diff=Infinity;
+  if(OC.spot>0){atmIdx=0;chain.forEach((r,i)=>{const d=Math.abs(toNum(r.strike_price)-OC.spot);if(d<diff){diff=d;atmIdx=i;}});}
+  OC.atm=toNum(chain[atmIdx].strike_price);
   let count=Math.max(5,Math.min(50,Math.trunc(toNum(document.getElementById('ocStrikeCnt').value,15))));if(mode==='full_d30'&&count>11){count=11;document.getElementById('ocStrikeCnt').value='11';ts('Depth 30 allows max 50 instrument keys per socket; showing ±11 strikes (47 keys). Raise strikes only in Full/Greeks modes.','w');}
   const start=Math.max(0,atmIdx-count),end=Math.min(chain.length,atmIdx+count+1);OC.filtered=chain.slice(start,end);const state={atmPos:atmIdx-start};
   /* Baseline OI capture for the OI-change columns (fix pack). */
@@ -5024,16 +5156,32 @@ function proInspectorOrder(side){const i=$.activeInstrument;if(!i)return;const i
 function proInspectorChart(){const i=$.activeInstrument;if(!i)return;$.cKey=i.k;$.cSym=i.s;$.ddSel.dC1=i;document.getElementById('cSI').value=i.s;document.getElementById('cSN').textContent=i.s;$.cd=[];nav('chart');}
 function proInspectorFundamentals(){const i=$.activeInstrument;if(!i||!fundResolveISIN(i))return;$.ddSel.dF1=i;document.getElementById('fundI').value=i.s;nav('fund');loadFundamentals();}
 function proInspectorAddWatch(){if($.activeInstrument)addWInstrument($.activeInstrument);}
-function proUpdateMarket(key,ltp,cp){const m=PRO_MARKETS.find(x=>x.k===key);if(!m||!Number.isFinite(Number(ltp)))return;const last=Number(ltp),change=Number.isFinite(Number(cp))?last-Number(cp):toNum($.proMarkets?.[key]?.change),pct=Number(cp)?change/Number(cp)*100:0;$.proMarkets=$.proMarkets||{};$.proMarkets[key]={last,change,pct};const p=document.getElementById(m.p),c=document.getElementById(m.c);if(p)p.textContent=last.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});if(c){c.innerHTML=`<span class="pro-card-change">${change>=0?'+':''}${change.toFixed(2)}</span> <span class="pro-card-bracket">(</span><span class="pro-card-percent ${pct>=0?'pp':'pn'}">${pct>=0?'+':''}${pct.toFixed(2)}%</span><span class="pro-card-bracket">)</span>`;c.className=change>=0?'pp':'pn';}if(document.getElementById('pg-dash')?.classList.contains('on')&&!$.marketPulseTimer){$.marketPulseTimer=setTimeout(()=>{$.marketPulseTimer=null;renderProMarketPulse();},ocIsMobile()?600:250);}const market=PRO_MARKETS.find(x=>x.k===key);if(market)setTimeout(()=>syncMarketText(market),0);}
+function proUpdateMarket(key,ltp,cp){
+  /* AUDIT FIX (dashboard): `pct=Number(cp)?change/cp*100:0` printed a confident
+     "+412.35 (0.00%)" whenever a tick carried no/zero prev-close — and wiped a
+     known percentage with that zero. Keep the last real pct instead, and let
+     the card show "—" when the change basis is genuinely unknown. */
+  const m=PRO_MARKETS.find(x=>x.k===key);if(!m||!Number.isFinite(Number(ltp)))return;
+  const last=Number(ltp),cpN=Number(cp),hasCp=Number.isFinite(cpN)&&cpN>0,prev=$.proMarkets?.[key];
+  /* No prev-close on this tick: keep the last known percentage and derive the
+     absolute change from it, so last/change/% stay mutually consistent. */
+  const pct=hasCp?last/cpN*100-100:(Number.isFinite(prev?.pct)?prev.pct:null);
+  const change=pct!=null?last*pct/(100+pct):toNum(prev?.change);
+  $.proMarkets=$.proMarkets||{};$.proMarkets[key]={last,change,pct};const p=document.getElementById(m.p),c=document.getElementById(m.c);if(p)p.textContent=last.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});if(c){c.innerHTML=`<span class="pro-card-change">${change>=0?'+':''}${change.toFixed(2)}</span> <span class="pro-card-bracket">(</span><span class="pro-card-percent ${pct!=null&&pct<0?'pn':'pp'}">${pct==null?'—':(pct>=0?'+':'')+pct.toFixed(2)+'%'}</span><span class="pro-card-bracket">)</span>`;c.className=change>=0?'pp':'pn';}if(document.getElementById('pg-dash')?.classList.contains('on')&&!$.marketPulseTimer){$.marketPulseTimer=setTimeout(()=>{$.marketPulseTimer=null;renderProMarketPulse();},ocIsMobile()?600:250);}const market=PRO_MARKETS.find(x=>x.k===key);if(market)setTimeout(()=>syncMarketText(market),0);}
 function proMarketFeed(key,mf){const lt=mf?.ltpc;if(lt?.ltp!=null)proUpdateMarket(key,lt.ltp,lt.cp);proInspectorFeed(key,mf);}
 async function loadProMarkets(force=false){if(!$.tok&&!$.atok)return;try{const keys=PRO_MARKETS.map(x=>x.k).join(','),d=await upstoxFetch(END.LTP_V3,{query:`?instrument_key=${encodeURIComponent(keys)}`,_force:force});Object.values(d.data||{}).forEach(v=>proUpdateMarket(v.instrument_token,v.last_price,v.cp));loadProCardExpiries();}catch(e){if(!/no access token/i.test(e.message))console.warn('Market strip',e.message);}}
 function renderProMarketPulse(){const box=document.getElementById('dMarketPulse');if(!box)return;box.innerHTML=PRO_MARKETS.map(m=>{const x=$.proMarkets?.[m.k];return `<div class="pro-dash-row"><b>${escapeHtml(m.label||m.k.split('|')[1])}</b><span>${x?x.last.toLocaleString('en-IN',{maximumFractionDigits:2}):'—'}</span><span class="${(x?.change||0)>=0?'pp':'pn'}">${x?`${x.change>=0?'+':''}${x.change.toFixed(2)} <span class="pro-card-bracket">(</span>${x.pct>=0?'+':''}${Number(x.pct||0).toFixed(2)}%<span class="pro-card-bracket">)</span>`:'—'}</span></div>`;}).join('');}
-function renderProDashboard(freshOk=true){const pos=$.pos||[],hold=$.hld||[],orders=$.ords||[],risk=document.getElementById('dRisk'),holdBox=document.getElementById('dHoldPreview'),fresh=document.getElementById('dFresh'),state=document.getElementById('dRiskState');let gross=0,net=0;pos.forEach(p=>{const value=toNum(p.last_price)*toNum(p.quantity)*Math.max(1,toNum(p.multiplier,1));gross+=Math.abs(value);net+=value;});let portfolio=0,largest=0;hold.forEach(h=>{const value=toNum(h.last_price??h.close_price)*toNum(h.quantity);portfolio+=value;largest=Math.max(largest,value);});const concentration=portfolio?largest/portfolio*100:0,usedText=document.getElementById('dU')?.textContent||'0',availText=document.getElementById('dM')?.textContent||'0',used=toNum(usedText.replace(/[^0-9.-]/g,'')),avail=toNum(availText.replace(/[^0-9.-]/g,'')),marginRatio=used+avail?used/(used+avail)*100:0,riskScore=Math.min(100,marginRatio*.6+concentration*.4),riskLabel=riskScore>=70?'HIGH':riskScore>=40?'MODERATE':'LOW';if(state){state.textContent=riskLabel;state.className=riskScore>=70?'pn':riskScore>=40?'':'pp';}const posBox=document.getElementById('dTP'),orderBox=document.getElementById('dRO');if(posBox)posBox.innerHTML=pos.length?pos.slice().sort((a,b)=>Math.abs(toNum(b.pnl))-Math.abs(toNum(a.pnl))).slice(0,7).map(p=>`<div class="pro-dash-row"><b>${escapeHtml(symbolOf(p))}</b><span>${toNum(p.quantity)} @ ${fmtP(p.average_price)}</span><span class="${toNum(p.pnl)>=0?'pp':'pn'}">${fp(p.pnl)}</span></div>`).join(''):'<div class="emp"><div class="ed">No positions</div></div>';if(orderBox)orderBox.innerHTML=orders.length?orders.slice(0,7).map(o=>`<div class="pro-dash-row"><b>${escapeHtml(symbolOf(o))}</b><span class="${o.transaction_type==='BUY'?'pp':'pn'}">${escapeHtml(o.transaction_type||'—')} ${toNum(o.quantity)}</span><span>${escapeHtml(o.status||'—')}</span></div>`).join(''):'<div class="emp"><div class="ed">No orders</div></div>';if(risk)risk.innerHTML=`<div class="pro-risk-grid"><div class="pro-risk-item"><span>Gross exposure</span><b>${fm(gross)}</b></div><div class="pro-risk-item"><span>Net exposure</span><b>${fm(net)}</b></div><div class="pro-risk-item"><span>Portfolio value</span><b>${fm(portfolio)}</b></div><div class="pro-risk-item"><span>Concentration</span><b>${concentration.toFixed(1)}%</b></div></div><div class="pro-risk-meter"><i style="width:${riskScore.toFixed(0)}%"></i></div>`;if(holdBox)holdBox.innerHTML=hold.length?hold.slice().sort((a,b)=>toNum(b.last_price)*toNum(b.quantity)-toNum(a.last_price)*toNum(a.quantity)).slice(0,6).map(h=>{const value=toNum(h.last_price??h.close_price)*toNum(h.quantity),pnl=value-toNum(h.average_price)*toNum(h.quantity);return `<div class="pro-dash-row"><b>${escapeHtml(symbolOf(h))}</b><span>${fm(value)}</span><span class="${pnl>=0?'pp':'pn'}">${pnl>=0?'+':''}${fm(pnl)}</span></div>`;}).join(''):'<div class="emp"><div class="ed">No holdings</div></div>';if(fresh)fresh.textContent=freshOk?`Synced ${new Date().toLocaleTimeString()}`:'⚠ Sync failed — showing last known data';renderProMarketPulse();const sync=document.getElementById('psSync');if(sync)sync.textContent=freshOk?`Last sync ${new Date().toLocaleTimeString()}`:'Last sync failed';}
+function renderProDashboard(freshOk=true){const pos=$.pos||[],hold=$.hld||[],orders=$.ords||[],risk=document.getElementById('dRisk'),holdBox=document.getElementById('dHoldPreview'),fresh=document.getElementById('dFresh'),state=document.getElementById('dRiskState');let gross=0,net=0;pos.forEach(p=>{const value=toNum(p.last_price)*toNum(p.quantity)*Math.max(1,toNum(p.multiplier,1));gross+=Math.abs(value);net+=value;});let portfolio=0,largest=0;hold.forEach(h=>{const value=toNum(h.last_price??h.close_price)*toNum(h.quantity);portfolio+=value;largest=Math.max(largest,value);});const concentration=portfolio?largest/portfolio*100:0,
+  /* Prefer the numbers ldD stored; the ₹ text is only a fallback for a
+     dashboard rendered before the first funds response. */
+  df=$.dashFunds,
+  usedText=document.getElementById('dU')?.textContent||'0',availText=document.getElementById('dM')?.textContent||'0',
+  used=df?toNum(df.used):toNum(usedText.replace(/[^0-9.-]/g,'')),avail=df?toNum(df.avail):toNum(availText.replace(/[^0-9.-]/g,'')),marginRatio=used+avail?used/(used+avail)*100:0,riskScore=Math.min(100,marginRatio*.6+concentration*.4),riskLabel=riskScore>=70?'HIGH':riskScore>=40?'MODERATE':'LOW';if(state){state.textContent=riskLabel;state.className=riskScore>=70?'pn':riskScore>=40?'':'pp';}const posBox=document.getElementById('dTP'),orderBox=document.getElementById('dRO');if(posBox)posBox.innerHTML=pos.length?pos.slice().sort((a,b)=>Math.abs(toNum(b.pnl))-Math.abs(toNum(a.pnl))).slice(0,7).map(p=>`<div class="pro-dash-row"><b>${escapeHtml(symbolOf(p))}</b><span>${toNum(p.quantity)} @ ${fmtP(p.average_price)}</span><span class="${toNum(p.pnl)>=0?'pp':'pn'}">${fp(p.pnl)}</span></div>`).join(''):'<div class="emp"><div class="ed">No positions</div></div>';if(orderBox)orderBox.innerHTML=orders.length?orders.slice(0,7).map(o=>`<div class="pro-dash-row"><b>${escapeHtml(symbolOf(o))}</b><span class="${o.transaction_type==='BUY'?'pp':'pn'}">${escapeHtml(o.transaction_type||'—')} ${toNum(o.quantity)}</span><span>${escapeHtml(o.status||'—')}</span></div>`).join(''):'<div class="emp"><div class="ed">No orders</div></div>';if(risk)risk.innerHTML=`<div class="pro-risk-grid"><div class="pro-risk-item"><span>Gross exposure</span><b>${fm(gross)}</b></div><div class="pro-risk-item"><span>Net exposure</span><b>${fm(net)}</b></div><div class="pro-risk-item"><span>Portfolio value</span><b>${fm(portfolio)}</b></div><div class="pro-risk-item"><span>Concentration</span><b>${concentration.toFixed(1)}%</b></div></div><div class="pro-risk-meter"><i style="width:${riskScore.toFixed(0)}%"></i></div>`;if(holdBox)holdBox.innerHTML=hold.length?hold.slice().sort((a,b)=>toNum(b.last_price)*toNum(b.quantity)-toNum(a.last_price)*toNum(a.quantity)).slice(0,6).map(h=>{const value=toNum(h.last_price??h.close_price)*toNum(h.quantity),pnl=value-toNum(h.average_price)*toNum(h.quantity);return `<div class="pro-dash-row"><b>${escapeHtml(symbolOf(h))}</b><span>${fm(value)}</span><span class="${pnl>=0?'pp':'pn'}">${pnl>=0?'+':''}${fm(pnl)}</span></div>`;}).join(''):'<div class="emp"><div class="ed">No holdings</div></div>';if(fresh)fresh.textContent=freshOk?`Synced ${fmtISTTime(Date.now(),true)} IST`:'⚠ Sync failed — showing last known data';renderProMarketPulse();const sync=document.getElementById('psSync');if(sync)sync.textContent=freshOk?`Last sync ${fmtISTTime(Date.now(),true)} IST`:'Last sync failed';}
 function proRefreshCurrent(){proInvalidate();const page=document.querySelector('.pg.on')?.id?.replace('pg-','');({dash:ldD,orders:ldO,gtt:ldG,pos:ldP,hold:ldH,watch:ldWQ,funds:ldFn,pnl:ldPl,chart:ldCh,fund:()=>loadFundamentals(true),oc:ldOC})[page]?.();loadProMarkets(true);}
 function proSyncTick(){
   if(document.hidden||(!$.tok&&!$.atok))return;
-  try{if(typeof proCheckIdle==='function'&&proCheckIdle()){const sync=document.getElementById('psSync');if(sync){const base=$.ws?.readyState===WebSocket.OPEN?`Live WS • REST ${PRO_HUB.lastSuccess?new Date(PRO_HUB.lastSuccess).toLocaleTimeString():'idle'}`:`REST sync ${PRO_HUB.lastSuccess?new Date(PRO_HUB.lastSuccess).toLocaleTimeString():'idle'}`;sync.textContent=`Idle • ${base} • polling paused`;}return;}}catch(e){}
-  const now=Date.now(),page=document.querySelector('.pg.on')?.id?.replace('pg-','');$.proSyncAt=$.proSyncAt||{};const run=(name,ms,fn)=>{if(!$.proSyncAt[name]||now-$.proSyncAt[name]>=ms){$.proSyncAt[name]=now;Promise.resolve(fn()).catch(()=>{});}};run('markets',$.ws?.readyState===WebSocket.OPEN?300000:15000,loadProMarkets);if(page==='dash')run('dash',10000,ldD);if(page==='orders')run('orders',5000,ldO);if(page==='pos')run('pos',5000,ldP);if(page==='hold')run('hold',30000,ldH);if(page==='funds')run('funds',15000,ldFn);if(page==='gtt')run('gtt',15000,ldG);if(page==='watch')run('watch',8000,ldWQ);const sync=document.getElementById('psSync');if(sync)sync.textContent=$.ws?.readyState===WebSocket.OPEN?`Live WS • REST ${PRO_HUB.lastSuccess?new Date(PRO_HUB.lastSuccess).toLocaleTimeString():'idle'}`:`REST sync ${PRO_HUB.lastSuccess?new Date(PRO_HUB.lastSuccess).toLocaleTimeString():'idle'}`;}
+  try{if(typeof proCheckIdle==='function'&&proCheckIdle()){const sync=document.getElementById('psSync');if(sync){const base=$.ws?.readyState===WebSocket.OPEN?`Live WS • REST ${PRO_HUB.lastSuccess?fmtISTTime(PRO_HUB.lastSuccess,true):'idle'}`:`REST sync ${PRO_HUB.lastSuccess?fmtISTTime(PRO_HUB.lastSuccess,true):'idle'}`;sync.textContent=`Idle • ${base} • polling paused`;}return;}}catch(e){}
+  const now=Date.now(),page=document.querySelector('.pg.on')?.id?.replace('pg-','');$.proSyncAt=$.proSyncAt||{};const run=(name,ms,fn)=>{if(!$.proSyncAt[name]||now-$.proSyncAt[name]>=ms){$.proSyncAt[name]=now;Promise.resolve(fn()).catch(()=>{});}};run('markets',$.ws?.readyState===WebSocket.OPEN?300000:15000,loadProMarkets);if(page==='dash')run('dash',10000,ldD);if(page==='orders')run('orders',5000,ldO);if(page==='pos')run('pos',5000,ldP);if(page==='hold')run('hold',30000,ldH);if(page==='funds')run('funds',15000,ldFn);if(page==='gtt')run('gtt',15000,ldG);if(page==='watch')run('watch',8000,ldWQ);const sync=document.getElementById('psSync');if(sync)sync.textContent=$.ws?.readyState===WebSocket.OPEN?`Live WS • REST ${PRO_HUB.lastSuccess?fmtISTTime(PRO_HUB.lastSuccess,true):'idle'}`:`REST sync ${PRO_HUB.lastSuccess?fmtISTTime(PRO_HUB.lastSuccess,true):'idle'}`;}
 function proPortfolioStatus(on,text){const label=document.getElementById('psPortfolio'),dot=document.getElementById('psPortDot');if(label)label.textContent=text||(on?'Live':'Offline');if(dot)dot.className=`status-dot ${on?'on':''}`;if(typeof wsCountUpdate==='function')wsCountUpdate();}
 function handlePortfolioUpdate(update){if(!update||!update.update_type)return;const type=update.update_type;if(type==='order'){const i=($.ords||[]).findIndex(x=>x.order_id===update.order_id);if(i>=0)$.ords[i]={...$.ords[i],...update};else $.ords.unshift(update);if(update.order_id)$.oM[update.order_id]=$.ords[i>=0?i:0];proInvalidate('/order/');if(document.getElementById('pg-orders')?.classList.contains('on'))rnO();const open=$.ords.filter(isOp),badge=document.getElementById('oBd');if(badge){badge.style.display=open.length?'inline':'none';badge.textContent=open.length;}}else if(type==='position'){proInvalidate('/portfolio/short-term-positions');setTimeout(()=>{if(document.getElementById('pg-pos')?.classList.contains('on')||document.getElementById('pg-dash')?.classList.contains('on'))ldP().then(()=>renderProDashboard());},250);}else if(type==='holding'){proInvalidate('/portfolio/long-term-holdings');setTimeout(()=>{if(document.getElementById('pg-hold')?.classList.contains('on')||document.getElementById('pg-dash')?.classList.contains('on'))ldH().then(()=>renderProDashboard());},300);}else if(type==='gtt_order'){proInvalidate('/order/gtt');if(document.getElementById('pg-gtt')?.classList.contains('on'))setTimeout(ldG,250);}if(document.getElementById('pg-dash')?.classList.contains('on'))renderProDashboard();}
 async function connectPortfolioStream(){if(($.atok&&!$.tok)||!$.tok||$.pws?.readyState===WebSocket.OPEN||$.pws?.readyState===WebSocket.CONNECTING||$.pwsConnecting)return;clearTimeout($.pwsReconnectTimer);try{$.pwsConnecting=true;proPortfolioStatus(false,'Connecting');const query='?update_types=order%2Cgtt_order%2Cposition%2Cholding',d=await upstoxFetch(END.PORTFOLIO_WS_AUTH,{query,_force:true}),url=d.data?.authorized_redirect_uri||d.data?.authorizedRedirectUri;if(!url)throw new Error('No portfolio stream URL');const ws=new WebSocket(url);$.pws=ws;$.pwsConnecting=false;ws.onopen=()=>{if($.pws!==ws)return;$.pwsAttempts=0;proPortfolioStatus(true,'Live');};ws.onmessage=async e=>{if($.pws!==ws)return;try{let raw=e.data;if(raw instanceof Blob)raw=await raw.text();else if(raw instanceof ArrayBuffer)raw=new TextDecoder().decode(new Uint8Array(raw));const data=typeof raw==='string'?JSON.parse(raw):raw;handlePortfolioUpdate(data);}catch(err){console.warn('Portfolio stream message',err);}};ws.onclose=()=>{if($.pws!==ws)return;$.pws=null;proPortfolioStatus(false,'Reconnecting');const attempt=($.pwsAttempts||0)+1;$.pwsAttempts=attempt;if(attempt<=6)$.pwsReconnectTimer=setTimeout(connectPortfolioStream,Math.min(60000,2000*Math.pow(2,Math.min(attempt,5))));else proPortfolioStatus(false,'Paused');};ws.onerror=()=>{if($.pws===ws)proPortfolioStatus(false,'Feed error');};}catch(e){$.pwsConnecting=false;console.warn('Portfolio stream',e.message);const attempt=($.pwsAttempts||0)+1;$.pwsAttempts=attempt;proPortfolioStatus(false,attempt<=6?'Unavailable • retrying':'Paused');if(attempt<=6)$.pwsReconnectTimer=setTimeout(connectPortfolioStream,Math.min(60000,3000*Math.pow(2,Math.min(attempt,4))));}}
@@ -5046,7 +5194,18 @@ function initProTerminal(){document.body.classList.add('pro-tv');try{if(localSto
  if(typeof fastStart==='function')fastStart();
  if(!$.ws||$.ws.readyState>1)wsC(true);resolveCrudeFuture();}
 
-function nav(p){const page=document.getElementById(`pg-${p}`),item=document.querySelector(`.si[data-p="${p}"]`);if(!page||!item)return;document.querySelectorAll('.pg').forEach(x=>x.classList.remove('on'));document.querySelectorAll('.si').forEach(x=>x.classList.remove('on'));page.classList.add('on');item.classList.add('on');if(p==='oc'&&window.innerWidth<1800&&document.body.classList.contains('pro-inspector-open'))proToggleInspector(false);({dash:ldD,orders:ldO,pos:ldP,hold:ldH,funds:ldFn,gtt:ldG,watch:ldWQ,pnl:ldPl,trades:ldT})[p]?.();if(p==='chart'){if($.cd?.length){setTimeout(()=>{drawC();anlC();chartUpdateMeta();},30);}else if($.cKey)ldCh();}document.getElementById('SD').classList.remove('open');if(p==='oc')ocAutoInit();}
+/* MENU FIX (read-only sessions): every portfolio loader returns silently
+   without a daily token, so an Analytics-token session showed blank
+   Orders/Positions/Holdings/GTT pages that looked like "no data". Say what is
+   happening and drop a locked empty state into the table. */
+const RO_MENUS={dash:'Dashboard',orders:'Orders',gtt:'GTT',trades:'Trades',pos:'Positions',hold:'Holdings',funds:'Funds',pnl:'P&L',prof:'Profile'};
+function roPageNotice(p){
+  const label=RO_MENUS[p];if(!label)return;
+  $.roNotified=$.roNotified||{};
+  if(!$.roNotified[p]){$.roNotified[p]=1;ts(`${label} needs the daily login token — this is a read-only Analytics session (market data only).`,'w');}
+  setTimeout(()=>{const tb=document.querySelector(`#pg-${p} .data-panel tbody`);if(!tb||tb.children.length)return;const cols=tb.closest('table')?.querySelectorAll('thead th').length||1;tb.innerHTML=emptyTableRow(cols,'🔒','Daily token required',`${label} is a portfolio API — sign in with the daily token to load it.`);},80);
+}
+function nav(p){const page=document.getElementById(`pg-${p}`),item=document.querySelector(`.si[data-p="${p}"]`);if(!page||!item)return;document.querySelectorAll('.pg').forEach(x=>x.classList.remove('on'));document.querySelectorAll('.si').forEach(x=>x.classList.remove('on'));page.classList.add('on');item.classList.add('on');if(p==='oc'&&window.innerWidth<1800&&document.body.classList.contains('pro-inspector-open'))proToggleInspector(false);({dash:ldD,orders:ldO,pos:ldP,hold:ldH,funds:ldFn,gtt:ldG,watch:ldWQ,pnl:ldPl,trades:ldT})[p]?.();if(p==='chart'){if($.cd?.length){setTimeout(()=>{drawC();anlC();chartUpdateMeta();},30);}else if($.cKey)ldCh();}document.getElementById('SD').classList.remove('open');if(p==='oc')ocAutoInit();if(!$.tok&&$.atok)roPageNotice(p);}
 
 
 function emptyTableRow(cols,icon,title,description){return `<tr><td colspan="${cols}" class="empty-cell"><div class="empty-state"><div class="empty-icon">${icon}</div><b>${escapeHtml(title)}</b><span>${escapeHtml(description)}</span></div></td></tr>`;}
@@ -5818,7 +5977,7 @@ function renderOCLiveTable(rows, atmPos, isLive){
   if (spot && !spotInserted) body.appendChild(makeSpotRow());
   { const _sr=[...body.querySelectorAll('tr.spot-row')]; if(_sr.length>1) _sr.slice(0,-1).forEach(x=>x.remove()); }
 
-  updateOCSpotUI(OC.spot, OC.spotCp || null, new Date().toLocaleTimeString(), false);
+  updateOCSpotUI(OC.spot, OC.spotCp || null, fmtISTTime(Date.now()), false);
   updateOCPCR();
   const sub = document.getElementById('ocSub');
   if (sub){
@@ -6058,7 +6217,7 @@ function renderOCMobile(rows, isLive){
   if (spot && !spotInserted) body.appendChild(spotRow());
   { const _sr=[...body.querySelectorAll('tr.spot-row')]; if(_sr.length>1) _sr.slice(0,-1).forEach(x=>x.remove()); }
 
-  updateOCSpotUI(OC.spot, OC.spotCp || null, new Date().toLocaleTimeString(), false);
+  updateOCSpotUI(OC.spot, OC.spotCp || null, fmtISTTime(Date.now()), false);
   updateOCPCR();
   const sub = document.getElementById('ocSub');
   if (sub) sub.textContent = `${OC.keys?.length || 0} keys • ${mode}${isLive ? ' • streaming' : ''} • mobile view`;
@@ -6709,7 +6868,7 @@ async function mcxLdOC(live){
       }
     }
     renderOCLiveTable(OC.filtered,state.atmPos,!!live);
-    if(spot>0)updateOCSpotUI(spot,futCp,new Date().toLocaleTimeString());
+    if(spot>0)updateOCSpotUI(spot,futCp,fmtISTTime(Date.now()));
     setOCText('ocSub',`${sym} ${expiry} • options on ${fut.s} (future expires ${mcxExpiryDate(fut)}) • lot ${fut.lot||1} • MCX chain built client-side`);
     /* Per design: the underlying future also becomes the chart instrument. */
     $.ddSel.dC1=fut;const ci=document.querySelector('#dC1 input');if(ci)ci.value=fut.s;
@@ -6943,7 +7102,7 @@ async function pollTick(){
   const keys=pollKeys();if(keys.length<2)return;
   P.busy=true;
   try{
-    const map=ocInstrumentMap(),now=new Date().toLocaleTimeString();
+    const map=ocInstrumentMap(),now=fmtISTTime(Date.now());
     if(P.src==='v2'){
       const d=await upstoxFetch(END.QUOTES_V3,{query:`?instrument_key=${encodeURIComponent(keys.join(','))}`,_force:true});
       Object.values(d.data||{}).forEach(v=>{
@@ -7169,10 +7328,12 @@ function rnT(rows){
     const q=toNum(t.quantity),p=toNum(t.average_price||t.price),v=q*p;
     const side=String(t.transaction_type||'-').toUpperCase();
     if(side==='BUY')buy+=v;else if(side==='SELL')sell+=v;
-    const ts_=(t.trade_date||t.exchange_timestamp||'');
-    const time=/^\d{13}$/.test(String(ts_))?new Date(Number(ts_)).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}):String(ts_||'-');
+    const ts_=(t.trade_date||t.exchange_timestamp||t.order_timestamp||'');
+    /* AUDIT FIX (trades): only a 13-digit epoch was formatted — an ISO
+       trade_date was printed verbatim ("2026-10-31T10:11:00+05:30"). */
+    const time=fmtISTTime(ts_,true)||'-';
     const oid=String(t.order_id||'');
-    return `<tr><td>${escapeHtml(time)}</td><td><b>${escapeHtml(symbolOf(t)||t.trading_symbol||t.instrument_token||'-')}</b></td><td class="${side==='BUY'?'pp':'pn'}">${escapeHtml(side)}</td><td>${q}</td><td>${fmtP(p)}</td><td>${fmtN(v)}</td><td class="muted-id">${escapeHtml(oid.slice(0,12))}</td></tr>`;
+    return `<tr><td>${escapeHtml(time)}</td><td><b>${escapeHtml(rowSymbol(t))}</b></td><td class="${side==='BUY'?'pp':'pn'}">${escapeHtml(side)}</td><td>${q}</td><td>${fmtP(p)}</td><td>${fmtN(v)}</td><td class="muted-id">${escapeHtml(oid.slice(0,12))}</td></tr>`;
   }).join('');
   tb.innerHTML=body||emptyTableRow(7,'🧾','No trades yet','Executed fills for today will appear here.');
   const c=document.getElementById('tCnt'),b=document.getElementById('tBuy'),s=document.getElementById('tSell');
@@ -7206,7 +7367,9 @@ async function exitAllMine(skipConfirm){
   if(!confirm('CONFIRM: exit-all sends real market orders. Proceed?'))return false;
   }
   try{
-    const d=await upstoxFetch(END.POSITIONS_EXIT,{method:'POST',_force:true,_readonly:true,query:'?tag='+encodeURIComponent('uptrade-web')});
+    /* NOT _readonly: this places real MARKET orders — upstoxFetch drops every
+       cached GET after a mutation, so the position book cannot be served stale. */
+    const d=await upstoxFetch(END.POSITIONS_EXIT,{method:'POST',_force:true,query:'?tag='+encodeURIComponent('uptrade-web')});
     const s=d.summary||{},errs=d.errors||[];
     ts(`Exit-all: ${s.success??0}/${s.total??open.length} exited${errs.length?' — first: '+errs[0].message:''}`,errs.length?'w':'s');
     proInvalidate('/order/');proInvalidate('/positions');setTimeout(ldP,900);
@@ -7234,23 +7397,44 @@ function utModal(title,bodyHtml,wide){
   document.body.appendChild(ov);
 }
 function utModalClose(){const ov=document.getElementById('utModalOv');if(ov)ov.remove();}
-function gttTickFor(g){const m=($.instrumentMaster||[]).find(x=>x.k===g.instrument_token)||{};const t=Number(m.tick??m.tick_size);return Number.isFinite(t)&&t>0?t:.05;}
+function gttTickFor(g){
+  /* AUDIT FIX (GTT modify): the tick used to come from the instrument master
+     only — with the master unloaded every GTT edit fell back to ₹0.05 and an
+     equity GTT on a ₹0.01-tick scrip could not be edited at all. Consult the
+     built-in DB / watchlist and derive the segment default from the key. */
+  const key=String(g?.instrument_token||'');
+  const m=($.instrumentMaster||[]).find(x=>x.k===key)||DB.find(x=>x.k===key)||($.wl||[]).find(w=>w.k===key)||{};
+  const t=Number(m.tick??m.tick_size);
+  if(Number.isFinite(t)&&t>0)return t;
+  return /_EQ\|/.test(key)?.01:.05;
+}
 /* GTT modify — PUT /v3/order/gtt/modify {type,quantity,rules[],gtt_order_id}.
    Doc constraints honored: strategies/trigger_types preserved as-is (OPEN GTT
    ENTRY may only accept IMMEDIATE), MULTIPLE stays 2–3 rules, trailing_gap
    preserved (editable only when it already exists). */
+/* AUDIT FIX (GTT modify / REVIEW B12): the editor spread the whole rule object
+   from the GET response into the PUT body, including response-only fields
+   (status, message, order_id, …) the broker never asked for; brackets also
+   skipped the side-aware target/SL check that crG() enforces. */
+function gttRulePayload(r){
+  const out={strategy:r?.strategy,trigger_type:r?.trigger_type,trigger_price:toNum(r?.trigger_price)};
+  if(r?.market_protection!=null)out.market_protection=r.market_protection;
+  if(r?.trailing_gap!=null)out.trailing_gap=toNum(r.trailing_gap);
+  return out;
+}
 function modG(id){
   if(!$.tok)return ts('Log in first','w');
   const g=($.gts||[]).find(x=>String(x.gtt_order_id)===String(id));
   if(!g)return ts('GTT not found — refresh the list','e');
   const rules=Array.isArray(g.rules)?g.rules:[];
-  const entry=rules[0]||{},target=rules.find(r=>r.strategy==='TARGET'),sl=rules.find(r=>r.strategy==='STOPLOSS');
-  const tick=gttTickFor(g);
-  const fld=(id2,label,val)=>`<div class="fgrp"><label>${label}</label><input type="number" class="fi" id="${id2}" step="0.05" value="${val}"></div>`;
-  let body=`<div class="fgrp"><label>Order</label><div>${escapeHtml(symbolOf(g)||g.instrument_token||'-')} · ${escapeHtml(g.type||'SINGLE')} · ${escapeHtml(String(g.transaction_type||entry.transaction_type||'-'))}</div></div>
-  ${fld('gmQ','Quantity',toNum(g.quantity,1))}
+  const entry=rules.find(r=>r.strategy==='ENTRY')||rules[0]||{},target=rules.find(r=>r.strategy==='TARGET'),sl=rules.find(r=>r.strategy==='STOPLOSS');
+  const tick=gttTickFor(g),side=String(g.transaction_type||entry.transaction_type||'').toUpperCase();
+  const gttState=String(entry.status||g.status||'').toUpperCase(),openGtt=/^(OPEN|ACTIVE|PENDING|TRIGGER PENDING)$/.test(gttState);
+  const fld=(id2,label,val,dis)=>`<div class="fgrp"><label>${label}</label><input type="number" class="fi" id="${id2}" step="${tick}" value="${val}"${dis?' disabled':''}></div>`;
+  let body=`<div class="fgrp"><label>Order</label><div>${escapeHtml(rowSymbol(g, g.instrument_token||'-'))} · ${escapeHtml(g.type||'SINGLE')} · ${escapeHtml(side||'-')}</div></div>
+  ${fld('gmQ','Quantity',toNum(g.quantity,1),openGtt)}
   ${fld('gmTr','Entry trigger price',toNum(entry.trigger_price,0))}
-  <p style="font-size:11px;color:var(--t3,#8296ad);margin:2px 0 10px">Entry trigger type stays <b>${escapeHtml(entry.trigger_type||'-')}</b> (Upstox restricts type changes on OPEN GTTs). Tick size ₹${tick}</p>`;
+  <p style="font-size:11px;color:var(--t3,#8296ad);margin:2px 0 10px">Entry trigger type stays <b>${escapeHtml(entry.trigger_type||'-')}</b> (Upstox restricts type changes on OPEN GTTs)${openGtt?' · this GTT is <b>OPEN</b>: the broker locks quantity once a GTT is live, so change trigger prices only':''}. Tick size ₹${tick}</p>`;
   if(target)body+=fld('gmTg','Target price',toNum(target.trigger_price,0));
   if(sl){body+=fld('gmSl','Stop-loss price',toNum(sl.trigger_price,0));
     if(sl.trailing_gap!=null)body+=fld('gmGap','Trailing SL gap',toNum(sl.trailing_gap,0));}
@@ -7259,21 +7443,27 @@ function modG(id){
   document.getElementById('gmSave').addEventListener('click',()=>{
     const q=parseInt(String(document.getElementById('gmQ').value).trim(),10);
     if(!Number.isInteger(q)||q<=0)return ts('Quantity must be a positive whole number','e');
+    if(openGtt&&q!==toNum(g.quantity,1))return ts('Quantity is locked while this GTT is OPEN — modify trigger prices only, or cancel and re-create the GTT to change size','e');
     const num=id2=>Number(document.getElementById(id2)?.value||0);
     const nR=[];
-    const e2={...entry,trigger_price:num('gmTr')};
+    const e2={...gttRulePayload(entry),trigger_price:num('gmTr')};
     if(!(e2.trigger_price>0))return ts('Entry trigger must be positive','e');
     if(!priceOnTick(e2.trigger_price,tick))return ts(`Entry trigger must follow tick ₹${tick}`,'e');
     nR.push(e2);
-    if(target){const t2={...target,trigger_price:num('gmTg')};
+    const tPrice=target?num('gmTg'):null,sPrice=sl?num('gmSl'):null;
+    if(target){const t2={...gttRulePayload(target),trigger_price:tPrice};
       if(!(t2.trigger_price>0))return ts('Target must be positive','e');
       if(!priceOnTick(t2.trigger_price,tick))return ts(`Target must follow tick ₹${tick}`,'e');nR.push(t2);}
-    if(sl){const s2={...sl,trigger_price:num('gmSl')};
+    if(sl){const s2={...gttRulePayload(sl),trigger_price:sPrice};
       if(!(s2.trigger_price>0))return ts('Stop-loss must be positive','e');
       if(!priceOnTick(s2.trigger_price,tick))return ts(`Stop-loss must follow tick ₹${tick}`,'e');
       const gapEl=document.getElementById('gmGap');
-      if(gapEl)s2.trailing_gap=num('gmGap');
+      if(gapEl){const gap=num('gmGap');if(!(gap>0))return ts('Trailing gap must be positive','e');if(!priceOnTick(gap,tick))return ts(`Trailing gap must follow tick ₹${tick}`,'e');s2.trailing_gap=gap;}
       nR.push(s2);}
+    if(target&&sl){
+      if(side==='BUY'&&!(tPrice>e2.trigger_price&&sPrice<e2.trigger_price))return ts('BUY bracket: target must be ABOVE the entry trigger and stop-loss BELOW it','e');
+      if(side==='SELL'&&!(tPrice<e2.trigger_price&&sPrice>e2.trigger_price))return ts('SELL bracket: target must be BELOW the entry trigger and stop-loss ABOVE it','e');
+    }
     const btn=document.getElementById('gmSave');btn.disabled=true;
     upstoxFetch(END.GTT_MODIFY,{method:'PUT',body:{type:g.type||'SINGLE',quantity:q,rules:nR,gtt_order_id:String(g.gtt_order_id)}})
       .then(d=>{utModalClose();const lat=d.metadata?.latency;ts(`GTT updated${lat!=null?` · broker ${lat} ms`:''}`,'s');proInvalidate('/order/gtt');ldG();})
@@ -7289,12 +7479,17 @@ async function ldPlCharges(segment,fy){
   try{
     const d=await upstoxFetch(END.PNL_CHARGES,{query:`?segment=${encodeURIComponent(segment)}&financial_year=${encodeURIComponent(fy)}`});
     const c=d.data?.charges_breakdown||{},tx=c.taxes||{},ch=c.charges||{};
-    const row=(l,v)=>`<tr><td>${escapeHtml(l)}</td><td style="text-align:right">${fp(v)}</td></tr>`;
+    /* AUDIT FIX (P&L): the docs put brokerage at the top level of
+       charges_breakdown while some responses nest it under charges — read
+       both so the brokerage row is never a silent ₹0. Costs are debits, so
+       they render neutral instead of as a green "+₹" gain. */
+    const brokerage=c.brokerage??ch.brokerage;
+    const row=(l,v)=>`<tr><td>${escapeHtml(l)}</td><td style="text-align:right">${fm(v)}</td></tr>`;
     box.innerHTML=`<div class="tc"><table class="dt"><tbody>
-      ${row('Brokerage',c.brokerage)}${row('GST',tx.gst)}${row('STT',tx.stt)}${row('Stamp duty',tx.stamp_duty)}
+      ${row('Brokerage',brokerage)}${row('GST',tx.gst)}${row('STT',tx.stt)}${row('Stamp duty',tx.stamp_duty)}
       ${row('Transaction',ch.transaction)}${row('Clearing',ch.clearing)}${row('IPFT',ch.ipft)}${row('SEBI turnover',ch.sebi_turnover)}${row('Demat transaction',ch.demat_transaction)}${row('Other',ch.others)}
     </tbody></table></div>`;
-    if(tot)tot.textContent='Total '+fp(c.total);
+    if(tot)tot.textContent='Total '+fm(c.total);
   }catch(e){box.innerHTML=`<span class="muted-note">Charges unavailable: ${escapeHtml(String(e.message||e))}</span>`;}
 }
 /* Kill switch — POST /v2/user/kill-switch [{segment,action}].
@@ -7347,7 +7542,7 @@ async function ldMarketStatus(){
     const nseOpen=isOpen(nse),mcxOpen=isOpen(mcx),preOpen=!nseOpen&&!mcxOpen&&(isPre(nse)||isPre(mcx));
     txt.textContent=nseOpen&&mcxOpen?'Mkt LIVE':nseOpen?'NSE live':mcxOpen?'MCX live':preOpen?'Pre-open':'Mkt CLOSED';
     chip.className='hst '+((nseOpen||mcxOpen||preOpen)?'ok':'off');
-    const fmt=d=>d?`${d.exchange}: ${d.status}${d.cas_eligible_status?.status?` · CAS ${d.cas_eligible_status.status}`:''}${d.last_updated?` · since ${new Date(d.last_updated).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`:''}`:'n/a';
+    const fmt=d=>d?`${d.exchange}: ${d.status}${d.cas_eligible_status?.status?` · CAS ${d.cas_eligible_status.status}`:''}${d.last_updated?` · since ${fmtISTTime(d.last_updated)} IST`:''}`:'n/a';
     chip.title=`Exchange status${String.fromCharCode(10)}• ${fmt(nse)}${String.fromCharCode(10)}• ${fmt(mcx)}`;
   }catch(e){/* silent — chip stays stale, feed chips carry the signal */}
 }
