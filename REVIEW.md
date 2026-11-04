@@ -128,6 +128,84 @@ Method:
 ## Running the suite
 
 ```bash
-node tests/run-all.js     # 10 suites, 246 assertions, all green after this pass
-node tests/deep.js        # batch-3 only (12 of its 18 checks fail on 2440125)
+node tests/run-all.js     # 11 suites, 265 assertions, all green after this pass
+node tests/deep.js        # batch-3 only (12 of its 20 checks fail on 2440125)
+node tests/writeorder.js  # order-write recovery only (fails on 2440125)
 ```
+
+---
+
+# Order placement: "Network/CORS error — may already have reached Upstox" (2026-11-04)
+
+Reported: *"when i place order network/cors error may request may already reached upstox check the order book"*.
+
+## Root cause
+
+Order place / modify / cancel were the only calls in the app pointed at
+`https://api-hft.upstox.com` (Upstox's low-latency order host). That host sits
+behind a CDN/WAF and, from a browser, can answer **without CORS headers** or with
+a WAF block page. `fetch()` then rejects with `TypeError: Failed to fetch` and the
+app reported it as `Network/CORS error: … the request may already have reached
+Upstox. Check the Order Book` — an *advisory*, not an answer, so the user cannot
+tell whether they hold a position.
+
+Everything else in the app (profile, funds, order book, quotes, GTT list) talks to
+`api.upstox.com` and works from the same page, so the block is specific to the
+HFT host. Verified live: `GET https://api.upstox.com/v3/order/place` returns the
+API's own `UDAPI100050` error (route exists), not a 404 — the v3 order routes are
+served on both hosts.
+
+## Fix
+
+1. **Known-good host first.** `ORDER_PLACE` / `ORDER_MODIFY` / `ORDER_CANCEL` now
+   default to `api.upstox.com` (the host the page already reaches), with
+   `api-hft.upstox.com` kept as `altBase`.
+2. **Stop guessing — reconcile.** New `reconcileOrderBook()` / `reconcileGttList()`
+   re-read the book and match the write on tag/token/side/qty/type within a
+   3-minute window. `orderWrite()` then decides:
+   - **found** → the write landed: report it, never re-send (no duplicate order);
+   - **none** (twice, 1.2 s apart) → provably absent, so exactly one retry on the
+     fallback host;
+   - **unknown** (book unreadable) → never re-send, say it is unconfirmed;
+   - **offline** → never left the device: marked "safe to retry", no book read.
+   Cancels invert the rule: the good outcome is *the row is no longer open*.
+3. **Every write path uses it**: `plO` (place), `sqO` (position exit),
+   `canO` (cancel), `crG` (GTT create), `dlG` (GTT cancel).
+4. **Honest copy.** The toast now says one of: "Order WAS placed … verified in the
+   order book. Do NOT place it again.", "Order was NOT placed — nothing for it in
+   the order book. Safe to retry.", "Order unconfirmed — … check Orders", or
+   "You are offline … never left this device".
+5. **Transport errors are typed** (`transportError`): `kind` = `offline` |
+   `timeout` | `blocked`, plus `mayHaveReached`, shared by `rawUpstoxFetch` and
+   `apiHist` so both feeds classify a lost reply identically.
+
+## Also fixed while tracing it
+
+- `marketPhase()` took its session minutes from `istClock()` but decided the MCX
+  DST window from `new Date()` — two time sources for one answer, which is also
+  why the clock suite flipped once the US DST switch passed. `marketPhase` and
+  `marketHoursOpen` now derive both from one instant.
+
+## Proof — `tests/writeorder.js` (17 asserts)
+
+Boots the real page, makes `api.upstox.com` reject the place call with
+`TypeError: Failed to fetch`, and simulates the order book:
+
+| Scenario | Expected |
+|---|---|
+| reply lost, order present in book | 1 POST total — no duplicate, "WAS placed … verified in the order book", fallback host never touched |
+| reply lost, book shows nothing | 2 POSTs — `api.upstox.com` then `api-hft.upstox.com`, book read twice, "via backup order host" |
+| reply lost, book unreadable | 1 POST — never re-sends, "unconfirmed … check Orders" |
+| offline | 1 POST — "never left this device", safe to retry |
+| cancel + row no longer open | 1 DELETE — "confirmed in the order book" |
+| cancel + row still open | never reported as cancelled, retry on the fallback |
+| GTT create + row present | 1 POST — verified against the GTT list |
+
+Plus endpoint-host assertions (`ORDER_*` base = `api.upstox.com`, `altBase` =
+`api-hft`) and the two MCX clock assertions in `tests/deep.js`.
+
+**If orders still fail in your browser:** the app now tells you the verdict instead
+of a maybe. The two things worth checking on your side are (a) an extension or
+proxy blocking `api.upstox.com` (the request would fail for reads too), and
+(b) whether your Upstox app has the order APIs enabled for your account — a 403
+from the WAF looks identical to CORS in the browser console.

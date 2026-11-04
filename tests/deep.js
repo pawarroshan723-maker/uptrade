@@ -88,6 +88,15 @@ const day = { ss: { u_tok: 'DAYTOK-1234567890abcdef' } };
   ok('algo: a 20:00Z timestamp reports the IST trading day',
     ev(`algoDate('2026-10-30T20:00:00Z')`) === '31 Oct 26');
   ok('algo: invalid dates print a dash', ev(`algoDate('nope')`) === '-');
+  /* MCX close must follow the SAME clock the session minutes come from: a
+     summer evening closes 23:30, a winter evening 23:55 — both on one instant. */
+  ok('clock: MCX close is judged on the same instant as the minutes (summer 23:30)',
+    ev(`(()=>{istClock=()=>new Date('2026-09-18T23:30:00');return marketPhase('COMM');})()`) === 'closed' &&
+    ev(`(()=>{istClock=()=>new Date('2026-09-18T23:29:00');return marketPhase('COMM');})()`) === 'open');
+  ok('clock: winter evening keeps MCX open past 23:30 (close 23:55)',
+    ev(`(()=>{istClock=()=>new Date('2026-11-06T23:30:00');return marketPhase('COMM');})()`) === 'open' &&
+    ev(`(()=>{istClock=()=>new Date('2026-11-06T23:55:00');return marketPhase('COMM');})()`) === 'closed');
+  ev(`istClock=()=>new Date()`);
 
   /* ================= SYMBOL FALLBACK (pos/hold) ================= */
   w.fetch = () => Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify({ status: 'success',
