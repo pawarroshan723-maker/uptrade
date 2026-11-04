@@ -87,7 +87,7 @@ const ok = (body, status = 200) => ({ ok: status < 400, status, text: () => Prom
     placed === 2 && hosts[0] === 'api.upstox.com' && hosts[1] === 'api-hft.upstox.com');
   okpush2('verified-absent → order book was consulted twice before re-sending', bookReads >= 2);
   okpush2('retry success is reported as placed (and names the backup host)',
-    /Order placed/i.test(toasts()) && /backup order host/i.test(toasts()));
+    /Order sent/i.test(toasts()) && /backup order host/i.test(toasts()));
   okpush2('limit guard: never more than one retry per attempt', placed <= 2);
 
   /* ============ CASE 3: reply lost and the book cannot be read =========== */

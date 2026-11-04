@@ -1499,7 +1499,7 @@ body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
     </div>
   </section>
   <section class="cd data-panel">
-    <div class="list-toolbar"><div class="tabs compact-tabs"><div class="tab on" onclick="soT('open',this)">Open</div><div class="tab" onclick="soT('done',this)">Closed</div><div class="tab" onclick="soT('all',this)">All</div></div><button type="button" class="btn br bs" onclick="cancelAllMine()" title="Cancel all open orders tagged uptrade-web (this app)">✖ Cancel all (mine)</button><button type="button" class="icon-btn subtle" onclick="ldO()" title="Refresh orders">↻</button></div>
+    <div class="list-toolbar"><div class="tabs compact-tabs"><div class="tab on" data-tab="open" onclick="soT('open',this)">Open</div><div class="tab" data-tab="done" onclick="soT('done',this)">Closed</div><div class="tab" data-tab="all" onclick="soT('all',this)">All</div></div><button type="button" class="btn br bs" onclick="cancelAllMine()" title="Cancel all open orders tagged uptrade-web (this app)">✖ Cancel all (mine)</button><button type="button" class="icon-btn subtle" onclick="ldO()" title="Refresh orders">↻</button></div>
     <div class="cb table-pad"><div class="tc data-viewport"><table class="dt"><thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Type</th><th>Qty</th><th>Price</th><th>Status</th><th>ID</th><th>Action</th></tr></thead><tbody id="oTB"></tbody></table></div></div>
   </section>
 </div>
@@ -2934,6 +2934,9 @@ function rnO(){
   tb.innerHTML=list.map(o=>{const open=isOp(o),id=String(o.order_id||''),side=String(o.transaction_type||'-'),otype=String(o.order_type||'-'),unpriced=otype==='MARKET'||otype==='SL-M';return `<tr><td>${fmtISTTime(o.order_timestamp||o.order_update_timestamp)||'-'}</td><td><b>${escapeHtml(rowSymbol(o))}</b></td><td class="${side==='BUY'?'pp':'pn'}">${escapeHtml(side)}</td><td>${escapeHtml(otype)}</td><td>${toNum(o.quantity)}</td><td>${unpriced?'MKT':fmtP(o.price)}</td><td><span class="os" style="background:${open?'var(--yl2)':'var(--gn2)'}">${escapeHtml(o.status||'-')}</span></td><td class="muted-id">${escapeHtml(id.slice(0,12))}</td><td><div class="row-actions">${open?`<button type="button" class="btn bo bs" onclick="opnM('${jsStr(id)}')">Edit</button><button type="button" class="btn br bs" onclick="canO('${jsStr(id)}')">Cancel</button>`:''}<button type="button" class="btn bo bs" onclick="oHist('${jsStr(id)}')">View</button></div></td></tr>`;}).join('');
 }
 function soT(t,el){$.oTab=t;document.querySelectorAll('#pg-orders .tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');rnO();}
+/* Programmatic tab switch (e.g. after a rejected order) that keeps the tabs'
+   highlighting honest — soT() needs the clicked element. */
+function setOrdersTab(t){$.oTab=t;document.querySelectorAll('#pg-orders .tab').forEach(x=>x.classList.toggle('on',x.dataset.tab===t));rnO();}
 function opnM(oid){
   const o=$.oM[oid];if(!o)return;
   const key=o.instrument_key||o.instrument_token||'';
@@ -2991,6 +2994,54 @@ async function doMd(){
      unknown   the book could not be read either, so we say so
    and only retries on the fallback host when the book proves nothing landed. */
 
+/* ============ DID THE BROKER ACTUALLY ACCEPT IT? (2026-11-04) ============
+   A v3 place reply only says the order reached the OMS — it carries an id and a
+   latency, not a verdict. The order can still be REJECTED a moment later (most
+   often \"insufficient funds\" when the balance is 0). The app used to stop at a
+   green \"Order placed · broker 32 ms\", so the user saw a success toast and no
+   order anywhere. Watch the order book briefly and report the real outcome. */
+function orderIdsOf(d){
+  const dd=(d&&d.data)||{};
+  const arr=Array.isArray(dd.order_ids)?dd.order_ids:[dd.order_id].filter(Boolean);
+  return arr.map(String).filter(Boolean);
+}
+const ORDER_REJECTED_ST=/reject|refus|fail|error|cancel/i;
+async function watchOrderOutcome(ids,match,waits){
+  ids=(ids||[]).map(String);
+  for(const ms of (waits||[900,2100])){
+    await new Promise(r=>setTimeout(r,ms));
+    if(!$.tok)return {state:'unknown'};
+    let d;
+    try{ d=await upstoxFetch(END.ORDER_BOOK,{_force:true,_fast:true}); }
+    catch(e){ return {state:'unknown',error:e}; }
+    const rows=Array.isArray(d.data)?d.data:[];
+    const byId=ids.length?rows.filter(o=>ids.includes(String(o.order_id))):[];
+    const hit=byId[0]||reconcileRows(match||{},rows,{recent:true,
+      inst:o=>o.instrument_token||o.instrument_key,
+      stamp:o=>o.order_timestamp||o.order_update_timestamp||o.exchange_timestamp||o.last_update_time})[0];
+    if(!hit)continue;
+    const st=String(hit.status||'').toLowerCase();
+    return {state:ORDER_REJECTED_ST.test(st)?'rejected':'accepted',status:st,row:hit};
+  }
+  return {state:'absent'};
+}
+/* One toast for the verdict — replaces the guesswork after a place/exit/GTT. */
+function reportOrderOutcome(res,opts){
+  opts=opts||{};
+  const label=opts.label||'Order';
+  if(!res||res.state==='unknown')return;
+  const row=res.row||{};
+  if(res.state==='rejected'){
+    const why=row.status_message||row.status_message_raw||'the broker gave no reason';
+    ts(`${label} REJECTED by the broker: ${why}${row.order_id?` (${row.order_id})`:''}`,'e');
+    return;
+  }
+  if(res.state==='accepted'){
+    ts(`${label} accepted — ${row.status||'open'}${row.order_id?` · ${row.order_id}`:''}`,'s');
+    return;
+  }
+  ts(`${label} sent but not visible in the order book yet — refresh Orders in a moment.`,'w');
+}
 /* True when the failure happened at the transport layer (no broker reply was
    read) — i.e. the write may or may not have taken effect. */
 function writeMayHaveReached(e){
@@ -3843,6 +3894,17 @@ async function plO(){
     if(!confirm('Market is OPEN — AMO applies only outside market hours (docs: auto-treated as live, or rejected with UDAPI100039). Place as a live order instead?'))return;
     const am=document.getElementById('oAm');if(am)am.value='false';
   }
+  /* FUNDS PRE-FLIGHT (2026-11-04): a v3 place reply only acknowledges the order;
+     the broker can reject it a second later for margin (the common case when the
+     balance is ₹0). If the ticket's own live estimate already shows the balance
+     cannot cover the margin, say it BEFORE anything is sent. */
+  const est=$.marginLast;
+  if(side==='BUY'&&est&&est.inst===sel.k&&Number(est.qty)===Number(qty)&&est.side===side&&est.product===oPrd
+     &&Number.isFinite(est.need)&&Number.isFinite(est.avail)&&est.need>est.avail+0.004){
+    const short=est.need-est.avail;
+    if(!confirm(`Not enough funds: this order needs about ${fm(est.need)} of margin and ${fm(est.avail)} is available — short by ${fm(short)}. The broker will almost certainly REJECT it with "insufficient funds". Place anyway?`))
+      return ts('Not placed — margin shortfall. Reduce the quantity or add funds.','i');
+  }
   if(!confirm(`${side} ${qtyTxt} ${sel.s||sel.k} · ${orderType}${orderType==='MARKET'||orderType==='SL-M'?'':` @ ${price}`}${['SL','SL-M'].includes(orderType)?` trigger ${trigger}`:''}${amoOn()?' · AMO (next session)':''}?`))return;
   const btn=document.getElementById('oBn');if(!btn||btn.disabled||$.orderBusy)return;btn.disabled=true;$.orderBusy=true;
   const body={
@@ -3868,10 +3930,22 @@ async function plO(){
       proInvalidate('/order/');setTimeout(ldO,600);return;
     }
     const d=res.data;
-    const ids=d.data?.order_ids||[d.data?.order_id].filter(Boolean);
+    const ids=orderIdsOf(d);
     const lat=d.metadata?.latency;
-    ts(`Order placed${ids.length?': '+ids.join(', '):''}${willSlice?' (sliced)':''}${amoOn()?' · AMO — queued for the next session':''}${lat!=null?` · broker ${lat} ms`:''}${res.viaFallback?' · via backup order host':''}`,'s');
+    ts(`Order sent${ids.length?': '+ids.join(', '):''}${willSlice?' (sliced)':''}${amoOn()?' · AMO — queued for the next session':''}${lat!=null?` · broker ${lat} ms`:''}${res.viaFallback?' · via backup order host':''} — confirming with the broker…`,'i');
     proInvalidate('/order/');setTimeout(ldO,900);
+    /* The reply is an acknowledgement, not an acceptance: an order can be
+       rejected a moment later (typically "insufficient funds"). Report the
+       real state instead of leaving a green toast with no order behind it. */
+    watchOrderOutcome(ids,{instrument_token:sel.k,transaction_type:side,quantity:qty})
+      .then(v=>{
+        reportOrderOutcome(v,{label:'Order'});
+        if(!v||v.state==='unknown')return;
+        /* A rejected order is NOT in the default "Open" tab — it lands in the
+           done book. Show it instead of leaving the page looking empty. */
+        if(v.state==='rejected')setOrdersTab('all');
+        proInvalidate('/order/');setTimeout(()=>{ldO();if(document.getElementById('pg-orders')?.classList.contains('on'))rnO();},400);
+      });
   }catch(e){
     if(e.verifiedNotApplied){
       ts(e.kind==='offline'
@@ -3957,10 +4031,15 @@ async function estMargin(opts){
       if(!auto)ts('Estimate failed: '+(m.reason?.message||b.reason?.message||'unknown error'),'e');
       return;
     }
+    const fundsSummaryNow=f.status==='fulfilled'?fundsSummary(f.value.response?.data):null;
     box.innerHTML=estMarginHtml({sel,qty,product,side,orderType,price,priceSrc,
       margin:mOk?m.value?.data:null,marginErr:mOk?null:(m.reason?.message||'failed'),
       brok:bOk?b.value?.data?.charges:null,brokErr:bOk?null:(b.reason?.message||'failed'),
-      funds:f.status==='fulfilled'?fundsSummary(f.value.response?.data):null});
+      funds:fundsSummaryNow});
+    /* Stash the numbers for the placement pre-flight (see plO). */
+    $.marginLast={inst:sel.k,qty:Number(qty),side,product,orderType,
+      need:mOk?estMarginNum(m.value?.data?.final_margin||m.value?.data?.required_margin):null,
+      avail:fundsSummaryNow?estMarginNum(fundsSummaryNow.available):null};
     if(!auto)ts('Margin & charges estimated','s');
   }finally{
     if(seq===$.marginSeq){$.marginBusy=false;if(btn)btn.disabled=false;}
@@ -4088,7 +4167,11 @@ async function sqO(t,pr,q){
     if(res.recovered){
       const row=res.row||{};
       ts(`Exit order WAS placed${row.order_id?`: ${row.order_id}`:''} — the reply was lost; verified in the order book.`,'s');
-    }else ts('Exit order placed'+ (willSlice?' (sliced)':''),'s');
+    }else{
+      ts('Exit order sent'+ (willSlice?' (sliced)':'')+' — confirming with the broker…','i');
+      watchOrderOutcome(orderIdsOf(res.data),{instrument_token:t,transaction_type:side,quantity:qty})
+        .then(v=>{reportOrderOutcome(v,{label:'Exit order'});if(v&&v.state!=='unknown')setTimeout(ldP,500);});
+    }
     proInvalidate('/portfolio/short-term-positions');proInvalidate('/order/');
     setTimeout(ldP,1200);
   }catch(e){

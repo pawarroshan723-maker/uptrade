@@ -128,9 +128,10 @@ Method:
 ## Running the suite
 
 ```bash
-node tests/run-all.js     # 11 suites, 265 assertions, all green after this pass
+node tests/run-all.js     # 12 suites, 276 assertions, all green after this pass
 node tests/deep.js        # batch-3 only (12 of its 20 checks fail on 2440125)
 node tests/writeorder.js  # order-write recovery only (fails on 2440125)
+node tests/orderverdict.js # ack-vs-acceptance + funds pre-flight (9/11 fail on 335add5)
 ```
 
 ---
@@ -209,3 +210,40 @@ of a maybe. The two things worth checking on your side are (a) an extension or
 proxy blocking `api.upstox.com` (the request would fail for reads too), and
 (b) whether your Upstox app has the order APIs enabled for your account — a 403
 from the WAF looks identical to CORS in the browser console.
+
+### Follow-up: green "Order placed · broker 32 ms" with no order (2026-11-04)
+
+Reported right after the host fix: *"order place only showing order place 32ms in green, but no any data received, because my balance is 00"*.
+
+**Root cause — the reply was never a verdict.** `POST /v3/order/place` answers
+`{status:'success', data:{order_ids:[…]}, metadata:{latency:32}}` the moment the
+order reaches the OMS. Acceptance or rejection happens *after* that: with a ₹0
+balance the broker rejects the order a few hundred milliseconds later, so the
+book holds a `rejected` row with `status_message: "Insufficient funds…"` while
+the app had already painted a green success toast. Two things made it worse:
+
+- the Orders page defaults to the **Open** tab, and a rejected order lives in
+  the **done** book — so the page looked empty precisely where the user looked;
+- nothing compared the ticket's own margin estimate with the balance before
+  sending.
+
+**Fix**
+
+| What | Behaviour |
+|---|---|
+| Place reply | reported as *"Order sent … — confirming with the broker…"* (info), never as success |
+| Verdict watch | `watchOrderOutcome()` re-reads the order book (0.9 s, then 2.1 s) and matches by order id, falling back to token/side/qty/type within 3 minutes |
+| Rejected | red toast **"Order REJECTED by the broker: \<status_message\> (order id)"**, and the Orders page switches to the **All** tab so the row is actually visible |
+| Accepted | green **"Order accepted — open · \<id\>"** |
+| Never appears | amber **"Order sent but not visible in the order book yet — refresh Orders"** |
+| Funds pre-flight | `estMargin` now stores its numbers in `$.marginLast`; `plO` compares required margin vs available for BUY tickets and asks *"Not enough funds: this order needs about ₹X of margin and ₹Y is available — short by ₹Z … Place anyway?"* — declining sends nothing |
+| Position exits | same verdict watch (`reportOrderOutcome(..., {label:'Exit order'})`) |
+| Tab helper | `setOrdersTab()` keeps the tab highlighting honest (the old `soT()` needed the clicked element) |
+
+**Proof — `tests/orderverdict.js` (11 asserts, 9 of them fail on the previous build):**
+acknowledgement is not a success → rejection with the broker's reason → tab
+pulled to All → acceptance reported as such → "never appears" called out →
+pre-flight warns with the exact shortfall → declining sends zero requests →
+funded ticket is not interrupted → the estimate really feeds the pre-flight.
+
+Suite total now **12 suites / 276 assertions, all green**.
