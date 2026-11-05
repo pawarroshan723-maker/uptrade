@@ -128,10 +128,11 @@ Method:
 ## Running the suite
 
 ```bash
-node tests/run-all.js     # 12 suites, 283 assertions, all green after this pass
+node tests/run-all.js     # 13 suites, 301 assertions, all green after this pass
 node tests/deep.js        # batch-3 only (12 of its 20 checks fail on 2440125)
 node tests/writeorder.js  # order-write recovery only (fails on 2440125)
 node tests/orderverdict.js # ack-vs-acceptance + funds pre-flight (9/11 fail on 335add5)
+node tests/algo.js        # algo engine: candles, news key, lots (13/16 fail on ed14db1)
 ```
 
 ---
@@ -246,7 +247,7 @@ pulled to All → acceptance reported as such → "never appears" called out →
 pre-flight warns with the exact shortfall → declining sends zero requests →
 funded ticket is not interrupted → the estimate really feeds the pre-flight.
 
-Suite total now **12 suites / 276 assertions, all green**.
+Suite total now **13 suites / 301 assertions, all green**.
 
 ### Chart timeframe: duplicate entry + 5m default (2026-11-05)
 
@@ -287,3 +288,33 @@ Proof (`tests/deep.js`, CHART block — 7 asserts, 5 of them fail on the previou
 - end-to-end: with a symbol selected, the candle request is
   `/historical-candle/<key>/minutes/5/<to>/<from>` and the two returned bars land
   in `$.cd` with the meta bar counting them (nothing requests `minutes/60`)
+
+### Algo page: stale intraday signal, derivative news key, fractional F&O lots (2026-11-05)
+
+Reported: *"find bugs in algo"*. Six defects, two of them material:
+
+| # | Sev | Where | Problem | Fix |
+|---|-----|-------|---------|-----|
+| 1 | **High** | `runA` | Only the **historical** candle endpoint was read. That feed stops at the previous session, so on 5m/15m/1H the "latest completed candle" behind the signal, plan and backtest could be a whole trading day old while the chart already showed today's bars. | Also request `/v3/historical-candle/intraday/{unit}/{interval}` for minutes/hours/days and merge it with the same `chartMergeCandles` helper the chart uses (dedupe by timestamp, sort). The run continues if only one endpoint answers; the closed-candle filter still drops the forming bar. The merge reuses `chartParseCandles`, so a malformed candle (missing OHLC) is now dropped instead of entering the indicator math as 0.00. |
+| 2 | **High** | `runA`, `algoBacktest` | Plan and simulated fills were **raw units**. A 250-lot future printed "547 units" in Risk-sized units and the backtest booked those fills — quantities no broker accepts. | `lotStep = max(1, round(minimumLot\|\|lot\|\|1))`; plan qty and every backtest fill are floored to whole lots (`settings.lot`). When the risk budget cannot fund one lot, the card says "under one lot (N units)" instead of a phantom number. |
+| 3 | Med | `runA` | News was fetched with the **selected** key. An F&O contract has no tagged headlines, so every derivative analysis showed "0 articles / +0 bias" and the divergence banner could never fire, even though the underlying was in the news. | `newsKey = underlyingKey \|\| key` for both the request and the response lookup. |
+| 4 | Low-Med | `runA` | The divergence banner compared the score with a **hard-coded ±25** while Mean Reversion and Volume Breakout gate at 30, so it warned about a "trap" on scores that are not signals at all. | `algoIsDivergent(score, bias, threshold)` uses the strategy's own `meta.threshold`. |
+| 5 | Low | `runA` hero | The candle stamp printed only the date (`Candle 05 Nov 26`), so a 5m run could not tell which intraday bar it used — and hid defect 1. | `algoCandleStamp()` appends the IST `HH:MM` for minutes/hours; days/weeks keep the date-only stamp. |
+| 6 | Low | `algoValue` | `Number(null) === 0`, so a missing indicator rendered **"0.00"** instead of "—" (the class of bug the earlier EMA/regime null guards target). | `null`/`''` → "—"; `0` still prints `0.00`. |
+
+Proof — `tests/algo.js` (16 asserts, 13 of them fail on `ed14db1`):
+intraday endpoint requested and its closed bar becomes the signal bar (the
+forming bar stays out); hero stamp carries the IST time; news requested with
+`NSE_INDEX|Nifty 50` and the headline reaches the bias card; an F&O plan qty is
+a multiple of 250 and every backtest fill is too; a `lot:1` book keeps the raw
+integer fills the engine always produced; `algoIsDivergent(27,-30,30)` is false
+while `(27,-30,25)` is true; `algoValue(null) === '—'`; day stamp vs intraday
+stamp.
+
+Examined and left alone: the strength ring on a WAIT (it is `|score|`-derived by
+design), `bars` "unbounded" (the control is a 250/500/750/1000 select), and the
+technical-dashboard null comparisons (the EMA-200 card is already guarded and
+the 100-bar minimum keeps EMA-20/50, RSI and ADX warm — only `algoValue` could
+leak a null, fixed above). Note that an F&O backtest on a small model capital
+now correctly produces **zero** trades when one lot cannot be funded; that is
+the honest result, not a regression.
