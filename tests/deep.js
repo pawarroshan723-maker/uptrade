@@ -18,6 +18,41 @@ const day = { ss: { u_tok: 'DAYTOK-1234567890abcdef' } };
   w.confirm = () => true;
   w.prompt = (m, d) => d;
 
+  /* ================= CHART: ONE TF LIST, 5m DEFAULT ================= */
+  {
+    const bootTF = ev('$.cTF');
+    const selVal = ev(`document.getElementById('cTFSelect').value`);
+    ok('chart: opens on the 5m timeframe by default', bootTF === 'minutes/5' && selVal === 'minutes/5');
+    ok('chart: the timeframe menu has no repeated interval (60m ≡ 1H)',
+      ev(`(()=>{const m=TFS.map(TF_MINUTES);return m.length===new Set(m).size;})()`) === true);
+    const labels = ev(`JSON.stringify([...document.getElementById('cTFSelect').options].map(o=>o.textContent))`);
+    ok('chart: no repeated label in the timeframe menu',
+      (() => { try { const a = JSON.parse(labels); return new Set(a).size === a.length && !a.includes('60m') && a.includes('1H'); } catch (e) { return false; } })());
+    ok('chart: exactly one timeframe control exists', ev(`document.querySelectorAll('#cTFSelect,#cTFMobile,#tfB').length`) === 1);
+    ok('chart: the menu covers the API intervals, 1H–4H included',
+      ev(`['minutes/1','minutes/5','minutes/30','hours/1','hours/3','hours/4','days/1','weeks/1','months/1'].every(id=>TFS.some(t=>t.id===id))`) === true);
+    ok('chart: pickTF drives state and the select, and ignores junk',
+      ev(`(()=>{pickTF('hours/1');const a=$.cTF==='hours/1'&&document.getElementById('cTFSelect').value==='hours/1';
+           pickTF('nonsense/9');return a&&$.cTF==='hours/1';})()`) === true);
+    ok('chart: 5m bars label in IST', ev(`(()=>{pickTF('minutes/5');return chartAxisLabel(Date.UTC(2026,9,30,3,45));})()`) === '09:15');
+    /* end-to-end: the default must reach the candle API as minutes/5 */
+    const urls = [];
+    w.fetch = (u) => {
+      urls.push(String(u));
+      const body = { status: 'success', data: { candles: [
+        ['2026-11-04T09:15:00+05:30', 100, 103, 99, 102, 1000],
+        ['2026-11-04T09:20:00+05:30', 102, 104, 101, 103, 1200] ] } };
+      return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) });
+    };
+    ev(`(()=>{$.cKey='NSE_EQ|INE002A01018';$.cSym='RELIANCE';pickTF(DEFAULT_TF);ldCh();})()`);
+    await new Promise(r => setTimeout(r, 500));
+    ok('chart: the default timeframe is what the candle API is asked for',
+      urls.some(u => /\/historical-candle\/[^/]+\/minutes\/5\//.test(u)) && !urls.some(u => /\/minutes\/60\//.test(u)));
+    ok('chart: the 5m candles actually load and the meta bar counts them',
+      ev(`($.cd||[]).length`) === 2 && /2/.test(ev(`document.getElementById('cBars').textContent`)));
+    ev(`pickTF('minutes/5')`);
+  }
+
   /* ===================== LOGIN: BOTH TOKENS ===================== */
   ev(`(()=>{const t=document.getElementById('aT'),a=document.getElementById('aN');
      t.value='DAYTOK-NEW-1234567890abcdef';a.value='ANALYTICS-TOKEN-1234567890abcdef';aTok();})()`);

@@ -1600,9 +1600,10 @@ body.density-compact #orderTicket .order-form-v2{gap:6px;padding:8px 10px 9px}
         <button type="button" class="cind" onclick="chartResetView()">Fit</button>
         <button type="button" class="cind" onclick="chartToggleFullscreen()" title="Fullscreen">⛶</button>
       </div>
-      <!-- legacy ids kept for JS compatibility -->
-      <div id="tfB" hidden></div>
-      <select id="cTFMobile" hidden></select>
+      <!-- legacy ids kept for JS compatibility (the timeframe duplicates were
+           removed in 2026-11-05: two more TF selects sat here as hidden
+           leftovers and could be rendered by any cached CSS that set a display
+           on them — one control, one list) -->
       <select id="cTypeMobile" hidden></select>
       <div id="cIndMobile" hidden></div>
       <button type="button" id="cTypeBtn" hidden></button>
@@ -1746,7 +1747,25 @@ message FeedResponse{ Type type = 1; map<string, Feed> feeds = 2; int64 currentT
 
 // ===== DB =====
 const DB=[{k:'NSE_EQ|INE002A01018',s:'RELIANCE',n:'Reliance Industries',x:'NSE'},{k:'NSE_EQ|INE009A01021',s:'INFY',n:'Infosys',x:'NSE'},{k:'NSE_EQ|INE467B01029',s:'TCS',n:'Tata Consultancy',x:'NSE'},{k:'NSE_EQ|INE040A01034',s:'HDFCBANK',n:'HDFC Bank',x:'NSE'},{k:'NSE_EQ|INE090A01021',s:'ICICIBANK',n:'ICICI Bank',x:'NSE'},{k:'NSE_EQ|INE154A01025',s:'ITC',n:'ITC Ltd',x:'NSE'},{k:'NSE_EQ|INE062A01020',s:'SBIN',n:'State Bank',x:'NSE'},{k:'NSE_EQ|INE030A01027',s:'HINDUNILVR',n:'Hindustan Unilever',x:'NSE'},{k:'NSE_EQ|INE397D01024',s:'BHARTIARTL',n:'Bharti Airtel',x:'NSE'},{k:'NSE_EQ|INE075A01022',s:'WIPRO',n:'Wipro',x:'NSE'},{k:'NSE_EQ|INE237A01036',s:'KOTAKBANK',n:'Kotak Bank',x:'NSE'},{k:'NSE_EQ|INE296A01032',s:'BAJFINANCE',n:'Bajaj Finance',x:'NSE'},{k:'NSE_EQ|INE585B01010',s:'MARUTI',n:'Maruti Suzuki',x:'NSE'},{k:'NSE_EQ|INE155A01022',s:'TMPV',n:'Tata Motors Passenger Vehicles',x:'NSE'},{k:'NSE_EQ|INE1TAE01010',s:'TMCV',n:'Tata Motors Commercial Vehicles',x:'NSE'},{k:'NSE_EQ|INE238A01034',s:'AXISBANK',n:'Axis Bank',x:'NSE'},{k:'NSE_EQ|INE423A01024',s:'ADANIENT',n:'Adani Ent',x:'NSE'},{k:'NSE_EQ|INE021A01026',s:'ASIANPAINT',n:'Asian Paints',x:'NSE'},{k:'NSE_EQ|INE044A01036',s:'SUNPHARMA',n:'Sun Pharma',x:'NSE'},{k:'NSE_EQ|INE081A01020',s:'TATASTEEL',n:'Tata Steel',x:'NSE'},{k:'NSE_EQ|INE733E01010',s:'NTPC',n:'NTPC',x:'NSE'},{k:'NSE_EQ|INE213A01029',s:'ONGC',n:'ONGC',x:'NSE'},{k:'NSE_EQ|INE860A01027',s:'HCLTECH',n:'HCL Tech',x:'NSE'},{k:'NSE_EQ|INE018A01030',s:'LT',n:'Larsen & Toubro',x:'NSE'},{k:'NSE_EQ|INE089A01031',s:'DRREDDY',n:'Dr Reddys',x:'NSE'},{k:'NSE_EQ|INE019A01038',s:'JSWSTEEL',n:'JSW Steel',x:'NSE'},{k:'NSE_EQ|INE918I01026',s:'BAJAJFINSV',n:'Bajaj Finserv',x:'NSE'},{k:'NSE_EQ|INE669C01036',s:'TECHM',n:'Tech Mahindra',x:'NSE'},{k:'NSE_EQ|INE059A01026',s:'CIPLA',n:'Cipla',x:'NSE'},{k:'NSE_EQ|INE280A01028',s:'TITAN',n:'Titan',x:'NSE'},{k:'NSE_EQ|INE095A01012',s:'INDUSINDBK',n:'IndusInd Bank',x:'NSE'},{k:'NSE_EQ|INE437A01024',s:'APOLLOHOSP',n:'Apollo Hospitals',x:'NSE'},{k:'NSE_EQ|INE742F01042',s:'ADANIPORTS',n:'Adani Ports',x:'NSE'},{k:'NSE_EQ|INE481G01011',s:'ULTRACEMCO',n:'UltraTech Cement',x:'NSE'},{k:'NSE_EQ|INE038A01020',s:'HINDALCO',n:'Hindalco',x:'NSE'},{k:'NSE_EQ|INE029A01011',s:'BPCL',n:'Bharat Petroleum',x:'NSE'},{k:'NSE_EQ|INE263A01024',s:'BEL',n:'Bharat Electronics',x:'NSE'},{k:'NSE_EQ|INE752E01010',s:'POWERGRID',n:'Power Grid',x:'NSE'},{k:'NSE_EQ|INE239A01024',s:'NESTLEIND',n:'Nestle India',x:'NSE'},{k:'NSE_EQ|INE066A01021',s:'EICHERMOT',n:'Eicher Motors',x:'NSE'},{k:'NSE_EQ|INE917I01010',s:'BAJAJ-AUTO',n:'Bajaj Auto',x:'NSE'},{k:'NSE_INDEX|Nifty 50',s:'NIFTY 50',n:'Nifty 50 Index',x:'IDX'},{k:'NSE_INDEX|Nifty Bank',s:'BANKNIFTY',n:'Bank Nifty',x:'IDX'},{k:'NSE_INDEX|Nifty Fin Service',s:'FINNIFTY',n:'Nifty Financial Services',x:'IDX'},{k:'NSE_INDEX|NIFTY MID SELECT',s:'MIDCPNIFTY',n:'Nifty Midcap Select',x:'IDX'},{k:'NSE_INDEX|Nifty IT',s:'NIFTYIT',n:'Nifty IT',x:'IDX'},{k:'NSE_INDEX|Nifty Next 50',s:'NIFTYNXT50',n:'Nifty Next 50',x:'IDX'},{k:'NSE_INDEX|Nifty Midcap 50',s:'NIFTYMID50',n:'Nifty Midcap',x:'IDX'},{k:'NSE_INDEX|India VIX',s:'INDIAVIX',n:'India VIX',x:'IDX'},{k:'BSE_INDEX|SENSEX',s:'SENSEX',n:'BSE Sensex',x:'IDX'},];
-const TFS=[{id:'minutes/1',lb:'1m',unit:'minutes',iv:1},{id:'minutes/3',lb:'3m',unit:'minutes',iv:3},{id:'minutes/5',lb:'5m',unit:'minutes',iv:5},{id:'minutes/10',lb:'10m',unit:'minutes',iv:10},{id:'minutes/15',lb:'15m',unit:'minutes',iv:15},{id:'minutes/30',lb:'30m',unit:'minutes',iv:30},{id:'minutes/60',lb:'60m',unit:'minutes',iv:60},{id:'hours/1',lb:'1H',unit:'hours',iv:1},{id:'hours/2',lb:'2H',unit:'hours',iv:2},{id:'hours/4',lb:'4H',unit:'hours',iv:4},{id:'days/1',lb:'D',unit:'days',iv:1},{id:'weeks/1',lb:'W',unit:'weeks',iv:1},{id:'months/1',lb:'M',unit:'months',iv:1},];
+const TFS=[
+  /* CHART FIX (2026-11-05): the list offered BOTH 'minutes/60' and 'hours/1' —
+     the same 60-minute candle twice, so the timeframe menu looked duplicated
+     (and minutes/60 requested a distinct cache key for identical bars). One
+     entry per interval now; Upstox accepts minutes 1–300 and hours 1–5, so 60m
+     is expressed as 1H. */
+  {id:'minutes/1',lb:'1m',unit:'minutes',iv:1},{id:'minutes/3',lb:'3m',unit:'minutes',iv:3},
+  {id:'minutes/5',lb:'5m',unit:'minutes',iv:5},{id:'minutes/10',lb:'10m',unit:'minutes',iv:10},
+  {id:'minutes/15',lb:'15m',unit:'minutes',iv:15},{id:'minutes/30',lb:'30m',unit:'minutes',iv:30},
+  {id:'hours/1',lb:'1H',unit:'hours',iv:1},{id:'hours/2',lb:'2H',unit:'hours',iv:2},
+  {id:'hours/3',lb:'3H',unit:'hours',iv:3},{id:'hours/4',lb:'4H',unit:'hours',iv:4},
+  {id:'days/1',lb:'D',unit:'days',iv:1},{id:'weeks/1',lb:'W',unit:'weeks',iv:1},
+  {id:'months/1',lb:'M',unit:'months',iv:1},
+];
+/* Guard against a future edit re-introducing the duplicate: one entry per
+   (unit, interval) pair and one label per interval. 5m is the default view
+   (2026-11-05 — the chart used to open on Daily). */
+const DEFAULT_TF='minutes/5';
+const TF_MINUTES=t=>(t.unit==='minutes'?t.iv:t.unit==='hours'?t.iv*60:t.unit==='days'?1440:t.unit==='weeks'?10080:43200);
 const API_BASE='https://api.upstox.com';const API_HFT='https://api-hft.upstox.com';
 /* ORDER-WRITE HOSTS (2026-11-04 — "Network/CORS error when I place an order"):
    Upstox moved order place/modify/cancel to the low-latency host
@@ -1759,7 +1778,7 @@ const API_BASE='https://api.upstox.com';const API_HFT='https://api-hft.upstox.co
    after the order book proves the first attempt did not land. */
 const ORDER_WRITE_FALLBACK=API_HFT;
 const END={AUTH_DIALOG:'/v2/login/authorization/dialog',TOKEN:'/v2/login/authorization/token',PROFILE:{base:API_BASE,path:'/v2/user/profile'},FUNDS_V3:{base:API_BASE,path:'/v3/user/get-funds-and-margin',headers:{'Api-Version':'3.0'}},ORDER_PLACE:{base:API_BASE,altBase:ORDER_WRITE_FALLBACK,path:'/v3/order/place'},ORDER_MODIFY:{base:API_BASE,altBase:ORDER_WRITE_FALLBACK,path:'/v3/order/modify'},ORDER_CANCEL:{base:API_BASE,altBase:ORDER_WRITE_FALLBACK,path:'/v3/order/cancel'},ORDER_BOOK:{base:API_BASE,path:'/v2/order/retrieve-all'},ORDER_HISTORY:{base:API_BASE,path:'/v2/order/history'},POSITIONS:{base:API_BASE,path:'/v2/portfolio/short-term-positions'},HOLDINGS:{base:API_BASE,path:'/v2/portfolio/long-term-holdings'},GTT_PLACE:{base:API_BASE,path:'/v3/order/gtt/place'},GTT_LIST:{base:API_BASE,path:'/v3/order/gtt'},GTT_CANCEL:{base:API_BASE,path:'/v3/order/gtt/cancel'},TRADES_DAY:{base:API_BASE,path:'/v2/order/trades/get-trades-for-day'},GTT_MODIFY:{base:API_BASE,path:'/v3/order/gtt/modify'},PNL_CHARGES:{base:API_BASE,path:'/v2/trade/profit-loss/charges'},KILL_SWITCH:{base:API_BASE,path:'/v2/user/kill-switch'},ORDER_CANCEL_MULTI:{base:API_BASE,path:'/v2/order/multi/cancel'},POSITIONS_EXIT:{base:API_BASE,path:'/v2/order/positions/exit'},LOGOUT:{base:API_BASE,path:'/v2/logout'},QUOTES_V3:{base:API_BASE,path:'/v3/market-quote/quotes'},LTP_V3:{base:API_BASE,path:'/v3/market-quote/ltp'},OPT_CHAIN:{base:API_BASE,path:'/v2/option/chain'},OPT_CONTRACT:{base:API_BASE,path:'/v2/option/contract'},INSTRUMENT_SEARCH:{base:API_BASE,path:'/v2/instruments/search'},HIST:'/v3/historical-candle',HIST_INTRA:'/v3/historical-candle/intraday',WS_AUTH_V3:{base:API_BASE,path:'/v3/feed/market-data-feed/authorize'},PORTFOLIO_WS_AUTH:{base:API_BASE,path:'/v2/feed/portfolio-stream-feed/authorize'},PNL_META:{base:API_BASE,path:'/v2/trade/profit-loss/metadata'},PNL_DATA:{base:API_BASE,path:'/v2/trade/profit-loss/data'},NEWS:{base:API_BASE,path:'/v2/news'},MARGIN:{base:API_BASE,path:'/v2/charges/margin'},BROKERAGE:{base:API_BASE,path:'/v2/charges/brokerage'}};
-const $={tok:'',atok:'',ro:false,prof:null,ords:[],oM:{},pos:[],hld:[],wl:[],cd:[],ind:{sma:0,ema:0,bb:0,rsi:0,macd:0,vol:0,vwap:0,st:0,sr:0},chartUseLiveCandle:true,oSide:'BUY',ws:null,lq:{},oTab:'open',cTF:'days/1',cKey:'',cSym:'',ddSel:{},poll:null,authShiftAt:0};
+const $={tok:'',atok:'',ro:false,prof:null,ords:[],oM:{},pos:[],hld:[],wl:[],cd:[],ind:{sma:0,ema:0,bb:0,rsi:0,macd:0,vol:0,vwap:0,st:0,sr:0},chartUseLiveCandle:true,oSide:'BUY',ws:null,lq:{},oTab:'open',cTF:DEFAULT_TF,cKey:'',cSym:'',ddSel:{},poll:null,authShiftAt:0};
 // OC WS STATE
 const OC={chain:[],filtered:[],live:{},ws:null,root:null,Feed:null,spot:0,spotCp:0,atm:0,keys:[],map:null,connected:false,underKey:''};
 
@@ -2889,12 +2908,16 @@ async function init(){
 function wait(ms){return new Promise(r=>setTimeout(r,ms));}
 
 function buildTF(){
-  const opts=TFS.map(t=>`<option value="${t.id}"${t.id===$.cTF?' selected':''}>${t.lb}</option>`).join('');
+  /* One option per real interval: collapse anything that resolves to the same
+     number of minutes (60m ≡ 1H) so the menu can never show a timeframe twice,
+     whatever TFS contains. */
+  const seen=new Set(),list=TFS.filter(t=>{const k=TF_MINUTES(t);if(seen.has(k))return false;seen.add(k);return true;});
+  if(!list.some(t=>t.id===$.cTF)&&list.length)$.cTF=list.some(t=>t.id===DEFAULT_TF)?DEFAULT_TF:list[0].id;
+  const opts=list.map(t=>`<option value="${t.id}"${t.id===$.cTF?' selected':''}>${t.lb}</option>`).join('');
   const primary=document.getElementById('cTFSelect');
   if(primary)primary.innerHTML=opts;
-  /* Keep hidden legacy selects in sync for any leftover callers. */
-  ['cTFMobile'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=opts;});
-  const legacy=document.getElementById('tfB');if(legacy)legacy.innerHTML='';
+  /* The desktop select is the only timeframe control now — the hidden
+     cTFMobile/tfB copies were removed with the 2026-11-05 duplicate fix. */
   chartUpdateIndicatorControls?.();
   chartUpdateIndicatorCandleControl?.();
 }
@@ -2902,7 +2925,6 @@ function pickTF(tf,el){
   if(!tf||!TFS.some(t=>t.id===tf))return;
   $.cTF=tf;
   const sel=document.getElementById('cTFSelect');if(sel&&sel.value!==tf)sel.value=tf;
-  const mobile=document.getElementById('cTFMobile');if(mobile&&mobile.value!==tf)mobile.value=tf;
   if($.cKey)ldCh();
 }
 async function ldPr(){

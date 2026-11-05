@@ -128,7 +128,7 @@ Method:
 ## Running the suite
 
 ```bash
-node tests/run-all.js     # 12 suites, 276 assertions, all green after this pass
+node tests/run-all.js     # 12 suites, 283 assertions, all green after this pass
 node tests/deep.js        # batch-3 only (12 of its 20 checks fail on 2440125)
 node tests/writeorder.js  # order-write recovery only (fails on 2440125)
 node tests/orderverdict.js # ack-vs-acceptance + funds pre-flight (9/11 fail on 335add5)
@@ -247,3 +247,43 @@ pre-flight warns with the exact shortfall → declining sends zero requests →
 funded ticket is not interrupted → the estimate really feeds the pre-flight.
 
 Suite total now **12 suites / 276 assertions, all green**.
+
+### Chart timeframe: duplicate entry + 5m default (2026-11-05)
+
+Reported: *"chart time frame is repeated, and make default time frame is 5m"*.
+
+Two separate defects:
+
+1. **The timeframe menu listed the same interval twice.** `TFS` contained both
+   `{id:'minutes/60', lb:'60m'}` and `{id:'hours/1', lb:'1H'}` — identical 60-minute
+   candles, so the menu showed "60m" and "1H" side by side and each got its own
+   REST/cache key for the same bars.
+2. **The chart opened on Daily** (`$.cTF = 'days/1'`), so every session began by
+   switching to minutes.
+
+Fixes:
+
+- `TFS` now holds one entry per interval (1m, 3m, 5m, 10m, 15m, 30m, 1H, 2H, 3H,
+   **4H**, D, W, M). `3H` was added because Upstox v3 accepts hours 1–5 and it was
+  the only gap in the ladder. `60m` is expressed as `1H` (minutes 1–300 still
+  valid upstream).
+- `buildTF()` collapses anything that resolves to the same number of minutes
+  (`TF_MINUTES`), so a future edit cannot re-introduce a duplicate option, and it
+  re-selects `DEFAULT_TF` if the current id disappears from the list.
+- `DEFAULT_TF = 'minutes/5'` and `$.cTF: DEFAULT_TF` — the chart now opens on 5m;
+  picking another timeframe is unchanged.
+- Removed the two hidden legacy timeframe controls (`#cTFMobile`, `#tfB`) plus
+  their sync code in `buildTF`/`pickTF`. One timeframe control exists in the DOM,
+  so no cached CSS or stray rule can make a second one appear.
+
+Proof (`tests/deep.js`, CHART block — 7 asserts, 5 of them fail on the previous build):
+
+- boots with `$.cTF === 'minutes/5'` and `#cTFSelect.value === 'minutes/5'`
+- `TFS` has no two entries with the same minute value; menu labels are unique and
+  contain `1H` but not `60m`
+- exactly one of `#cTFSelect` / `#cTFMobile` / `#tfB` exists
+- the ladder covers 1m…4H, D, W, M
+- `pickTF()` drives both state and the select, and ignores an unknown id
+- end-to-end: with a symbol selected, the candle request is
+  `/historical-candle/<key>/minutes/5/<to>/<from>` and the two returned bars land
+  in `$.cd` with the meta bar counting them (nothing requests `minutes/60`)
