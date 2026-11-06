@@ -25,16 +25,296 @@ Fixed items are covered by `tests/regress.js` (29 checks; 15 of them fail on the
 
 ## Open (not changed — need a product decision or live verification)
 
-- **B12 GTT modify (`modG`)**: spreads response-only fields (status, order_id, message…) from the GET into the PUT rules; `gttTickFor` falls back to 0.05 when the master isn't loaded (blocks 0.01-tick equity edits); no side-aware target/stop-loss vs entry check like `crG`. Suggest a field whitelist.
-- **B3/B4**: pasting a new token doesn't clear `PRO_HUB.cache`; pasting the Analytics token also drops an active daily session. `logout()` leaves GTT/trades/funds/P&L state and rendered tables (previous user's data can flash on a shared machine) and doesn't reset `$.authShiftAt`/`$.ro`.
-- **B5**: the 15 s abort timer is cleared once headers arrive; a stalled `r.text()` body is uncovered (`rawUpstoxFetch`, `apiHist`).
-- **B6**: `init()` catch uses `/token|unauthor|401|auth|expired/i` — same looseness as B2.
-- **L1** `marketPhase` uses months Mar–Oct for the MCX 23:30 close while `marketHoursOpen` uses Apr–Oct; the real switch follows US DST dates. One shared helper please.
-- **L2** `plO`/`crG` compare MCX lots to master `freeze_quantity` (units) with no conversion.
-- **L4** `ldPl` has no request-sequence guard. **L6** `chartApplyTick` applies an out-of-order older tick to the latest fixed-interval candle. **L8** `prepareOCChain` centres on the lowest strikes when `underlying_spot_price` is missing.
-- **A1** buy-and-hold benchmark starts at `candles[warmup].o` but the first tradable bar is `warmup+1`. **A2** metric field `sharpe` is SQN-like (UI label is right). Weekly/monthly bars are returned unfiltered by `algoOnlyClosedCandles`.
+- ~~**B12** GTT modify~~ — fixed 2026-10-31 (M7/M8/M9): whitelisted body, tick from DB/watchlist/segment, side-aware target–stop–entry validation, OPEN quantity locked.
+- ~~**B3/B4** token/logout hygiene~~ — fixed (M21/M22/M27): cache cleared on token change, full logout wipe, both-token paste, analytics token no longer demotes a live session.
+- ~~**B5** abort budget~~ — fixed (M26).
+- ~~**B6** `init()` catch~~ — fixed (M23).
+- ~~**L1** MCX close month windows~~ — fixed (M24): one `mcxCloseMinute()` on real US DST.
+- **L2** `plO`/`crG` compare MCX lots to master `freeze_quantity` (units) with no conversion — still open.
+- ~~**L6** out-of-order tick~~ fixed (M14). ~~**L8** off-spot ATM~~ fixed (M18). **L4** `ldPl` still has no request-sequence guard.
+- ~~**A1** buy-and-hold anchor~~ fixed (M17). ~~**A2** weekly/monthly in-progress bars~~ fixed (M15). The `sharpe` field is SQN-like by design — the UI already says "SQN-like score".
 - Equity tick is forced to ₹0.01 for every `_EQ` instrument, ignoring the master (client check is therefore looser than the exchange; harmless but not exact).
 - README is stale (says 6,948 lines and no package.json).
 - Kill switch: Upstox's community post says `PUT /v2/user/kill-switch`, the API page says `POST`. Worth a live check.
 
 Checked and found correct: indicators, backtest ordering, margin/order-ticket maths, GTT create, OC feed processing/OI baselines, WS watchdog/reconnect, option-chain fallback, P&L pagination, instrument-master worker (identical to main-thread normaliser), search `segments` values (`EQ,FO,CURR,COMM,INDEX` are valid per Upstox docs), fundamentals scoring.
+
+---
+
+# Menu-by-menu deep dive — 2026-10-31
+
+Scope: every sidebar page audited end-to-end against the live code path it calls
+(Dashboard, Watchlist, Orders + order ticket/history, GTT + GTT modify, Trades,
+Positions, Holdings, Fundamentals, Chart, Algo, Option Chain, Funds, P&L, Profile),
+plus the boot/session layer those pages depend on.
+
+Method:
+1. Static pass per menu: renderers, loaders, handlers, API schemas, state keys.
+2. Two jsdom harnesses: one boots the real `index.html` with doc-shaped fixtures
+   for all 29 endpoints and walks every menu; the other replays each loader with
+   malformed payloads (`data:null`, `data:{}`, rows missing every field, string
+   numbers, HTTP 500) and scans the rendered text for `NaN`/`undefined`/`Infinity`.
+3. Numeric probes for indicator/backtest/OC math and session-clock boundaries.
+4. Fixes encoded in **`tests/menu.js`** (35 checks) and **`tests/deep.js`** (18 checks).
+   Against the pre-fix build `2440125`: **29/35 menu checks fail, 12/18 deep checks fail**
+   (one menu check is timing-sensitive and flips on very slow runs).
+
+## Fixed in this pass
+
+| ID | Menu | Sev | Problem | Fix |
+|----|------|-----|---------|-----|
+| M1 | Orders | Med | MARKET / SL-M rows printed the price column as `0.00` (no price exists). | Unpriced order types render `MKT`. |
+| M2 | Orders | Med | Order time used `toLocaleTimeString()` → a 10:15 IST fill read 04:45 on a UTC machine. | Shared `fmtISTTime()` (Asia/Kolkata, epoch s/ms and ISO accepted). |
+| M3 | Orders | Low | Double-clicking **Cancel** fired two DELETEs; the broker rejection surfaced as an error for an order that cancelled fine. | Per-order in-flight lock (`$.cancelBusy`). |
+| M4 | Orders → history | Low | Status-history rows carried no timestamp. | IST time added to each row. |
+| M5 | GTT | Med | The GTT list has no `trading_symbol`; `symbolOf()` returned `'?'` and **every** row showed `?`. | `rowSymbol()` resolves master → DB → watchlist → key tail (GTT, Trades, Position exit confirm all use it). |
+| M6 | GTT | Low | Table read `rules[0]` for trigger/status (not necessarily ENTRY) and coloured every status the same. | ENTRY rule lookup; open/pending yellow vs closed green. |
+| M7 | GTT modify | Med | The editor spread the **whole GET rule object** into the PUT body (`status`, `message`, `order_id`, …) — REVIEW B12, still open. | `gttRulePayload()` whitelist (strategy, trigger_type, trigger_price, market_protection, trailing_gap). |
+| M8 | GTT modify | Med | No side-aware target/SL check on modify (create enforced it, edit did not). | BUY: target > entry > SL; SELL mirrored. Trailing gap must be positive + tick-aligned. |
+| M9 | GTT modify | Med | Tick came from the instrument master only → with it unloaded every edit fell back to ₹0.05 and ₹0.01-tick equity GTTs could not be edited (B12). | Master → DB/watchlist → segment default (`_EQ\|` = 0.01). |
+| M10 | GTT modify | Low | Quantity stayed editable on an `OPEN` GTT although Upstox locks it. | Field disabled + explicit message. |
+| M11 | Trades | Med | Only a 13-digit epoch was formatted; an ISO `trade_date` printed verbatim (`2026-10-31T10:11:00+05:30`). | `fmtISTTime(..., true)`. |
+| M12 | Trades | Low | `symbolOf(t) \|\| trading_symbol \|\| token` never fell back (`'?'` is truthy). | `rowSymbol()`. |
+| M13 | Positions | Low | Exit confirmation showed `EXIT SELL 75 ?` when the row had no trading symbol. | `rowSymbol(meta, token)`. |
+| M14 | Chart | **High** | A replayed/out-of-order tick older than the candle being built overwrote its live high/low/close (L6) — reproduced: close 105 → 90 after a 30-min-old tick. | Bucket authority guard (`bucket < lastBucket` → ignore). |
+| M15 | Algo | **High** | `algoOnlyClosedCandles()` filtered minutes/hours/days but returned weekly/monthly **unfiltered**, so the in-progress week/month bar leaked into the live signal and the backtest (A2). | Current week/month period dropped. |
+| M16 | Algo | Med | Trade `R` used the *planned* risk amount (`equity × riskPct`) instead of `qty × stop distance`, so a notional-capped trade reported −0.12R for a −1R stop. | `riskPerUnit` stored per position; `r = pnl / (qty × riskPerUnit)`. |
+| M17 | Algo | Low | Buy & hold benchmark anchored on the warmup bar's open while the first tradable bar is `warmup+1` (A1). | Benchmark from `candles[warmup+1].o`. |
+| M18 | Option chain | Med | With no `underlying_spot_price`, every strike is equidistant from 0 → ATM landed on the **lowest** strike and the ladder showed the bottom of the chain (L8). | Centre on the middle strike when spot ≤ 0. |
+| M19 | P&L | Low | Brokerage read only from `charges_breakdown.brokerage`; a nested `charges.brokerage` rendered ₹0. Cost rows also used `fp()` → green "+₹" gains for debits. | Both shapes read; charges render neutral `fm()`. |
+| M20 | Dashboard / Orders / GTT / Trades / Positions / Holdings / Funds / P&L / Profile | Med | In a read-only (Analytics-token) session every portfolio loader returns silently — the pages looked empty rather than locked. | `roPageNotice()` explains it once per page and drops a "Daily token required" empty state into the table. |
+| M21 | Session | Med | `logout()` left `$.gts`, market-status/pro-market caches, inspector quote, next-expiry cache, and the rendered portfolio/P&L/algo/fundamentals DOM (B3). | All cleared; tables reset to their empty states. |
+| M22 | Session | Low | Pasting a new token kept the REST cache, which is keyed by path+query (not identity) — a fresh login could read the previous session's cached profile/funds (B3). | `PRO_HUB.cache` + search cache reset on token paste and code exchange. |
+| M23 | Session | Low | `init()`'s catch classified failures with a loose `/token\|auth\|expired/` regex and wiped healthy sessions (B6). | Uses `isAuthFailure()` like REST/WS. |
+| M24 | Session clock | Med | MCX evening close was guessed twice with different month windows (Mar–Oct vs Apr–Oct) → orders blocked/polls stopped for up to 25 min around the March/November switches (L1). | One `mcxCloseMinute()` built on the real US DST window (2nd Sun Mar → 1st Sun Nov); both callers use it. |
+| M25 | Session clock | Med | `marketHoursOpen()` treated every non-MCX key as NSE cash → a live CDS/BCD chart was marked closed after 15:40. | Currency segments keep 09:00–17:00 IST. |
+| M26 | All requests | Med | The 15 s abort budget was cleared once headers arrived, so a stalled body could hang a request (or a write) forever (B5). | Budget covers `r.text()` in `rawUpstoxFetch`, `apiHist`, `chartFetchFreshIntraday`. |
+| M27 | Login | **High** | The login form has a daily-token field **and** an analytics-token field, but `aTok()` `return`ed after the daily branch — pasting both silently discarded the 1-year analytics token, so the next reload bounced to the login screen. (Review B4: the mirror case also forced read-only over a live daily session.) | Both tokens are recorded and validated individually, then one `init()`; the analytics token is a fallback and no longer tears down a live daily session. |
+| M28 | Dashboard | Med | `proUpdateMarket` computed `pct = cp ? … : 0`, so any tick without a prev-close printed "+412.35 (0.00%)" and erased the last known percentage. | Percentage is preserved (and the absolute change derived from it); a card with no basis prints "—". |
+| M29 | Dashboard | Med | The margin-risk score re-parsed the page's own `₹1,23,456.78` strings out of `#dU`/`#dM` — thousands separators, a "—" placeholder or a slow funds call all bent the score. | `ldD` stores `$.dashFunds` numbers; the text is only a pre-first-load fallback. |
+| M30 | Positions (exit-all) | Med | `exitAllMine` sent `_readonly:true` on `POST /order/positions/exit`. `upstoxFetch` honours that flag by **skipping cache invalidation**, so the Positions page could repaint the pre-square-off book from cache. | Flag removed — square-off is a mutation. |
+| M31 | Chart / Algo / status chips | Med | Chart axis labels, crosshair, algo trade dates, spot-update stamps and the market-status "since" used `toLocale*()`, i.e. the viewer's timezone (09:15 IST drew as 03:45 on a UTC machine, and a 20:00Z trade dated a day early). | New `istFmt`/`fmtISTDay`/`fmtISTDayTime`/`fmtISTDayFull`/`fmtISTDayShort` sit on `istDateOf`; every market timestamp now renders in Asia/Kolkata. |
+| M32 | Positions / Holdings / Dashboard | Low | These three still called `symbolOf()`, which answers `'?'` (truthy) when a row carries only `instrument_key` — Orders/Trades/GTT got `rowSymbol()` earlier, these were missed. | `rowSymbol()` everywhere a portfolio row is painted. |
+
+## Verified correct in this pass (no change needed)
+
+- **Order ticket**: lot/tick validation, freeze slicing, MCX lot echo, MIS-on-option-BUY block, AMO session logic, `market_protection:-1`, zeroed price for MKT/SL-M, busy lock.
+- **Margin estimator**: doc-shaped `instruments[]` body, LTP fallback for MARKET/SL-M, funds coverage line, sequence guard against stale renders.
+- **Positions/Holdings**: invested vs current maths, realised/unrealised split, P&L signs.
+- **Watchlist**: in-place row patching (no DOM rebuild per tick), prev-close derivation from `net_change`, NaN-safe sort, invalid-key pruning.
+- **Option chain**: PCR/OI totals, OI baselines, ATM handover, column manager, depth popup, `full_d30` 50-key cap.
+- **Chart**: session-anchored buckets (09:15 NSE / 09:00 MCX), Heikin-Ashi transform, VWAP, EMA/SMA/STD/RSI/MACD seeding.
+- **Algo**: indicator causality (no future data), ADX/Donchian look-back windows, conservative same-bar stop priority, 1:1 planned-R:R floor.
+- **Fundamentals**: factor clamping, coverage weighting, peer/statement tables, ISIN resolution.
+- **P&L**: metadata → paginated data → charges, IPFT row, FY list, analytics-token guard.
+- **Kill switch / market status chip / bulk cancel & exit-all / panic**: doc-shaped bodies, confirmation ladders, state reporting.
+
+## Static-scan flags that turned out NOT to be defects (checked, not "fixed")
+
+- `id="ocSpotRowPrice"` appearing three times — one is a `set()` call by id; the other two are the desktop and mobile renderers, and each clears `#ocBody` before painting, so only one node ever exists.
+- "OC header row has no `OI`" — the header is built from `OC_COL_DEFS` labels plus stacked sub-labels, so `OI` + `Chg` reads `OIChg` in `textContent`; the column and its tooltip are present on both sides.
+- "Chain-wide PCR repeated on every strike row" — `strikeCellHtml`/`ocUpdateRow` divide that strike's own put OI by its call OI (verified 10.00 / 4.00 / 2.00 / 1.00 / 0.40 across a five-strike fixture); the chain-wide value lives only in the summary bar.
+- `fundsSummary` vs the v3 docs — `available_to_trade.total`, `cash_available_to_trade.margin_used.total`, `pledge_available_to_trade.margin_used.total` and `cash.cash.opening_balance` all match the published schema.
+- `_readonly` "unused" — it is consumed by `upstoxFetch` for cache invalidation; the only misuse was `exitAllMine` (M30).
+
+## Open (need a live check or a product decision)
+
+- GTT list rule status casing (`OPEN` vs `OPEN PENDING`) — the modify lock matches the documented `OPEN` plus common pending aliases; verify against a live GTT.
+- GTT table shows only the ENTRY leg; surfacing target/SL in the row (or a tooltip) is a UX enhancement, not a defect.
+- Holdings: `t1_quantity` / `collateral_quantity` are not added to the displayed quantity — Upstox semantics for a settled vs T1 position need live verification before changing totals.
+- Market-pulse cards keep displaying the last known % when a tick omits `cp`; with no known basis at all they show "—" (see M28).
+- Fundamentals: negative-growth factors are clamped to 0..1, which hides “worse than flat” within a factor — intentional (the factor bars are 0–100), documented here.
+
+## Running the suite
+
+```bash
+node tests/run-all.js     # 13 suites, 301 assertions, all green after this pass
+node tests/deep.js        # batch-3 only (12 of its 20 checks fail on 2440125)
+node tests/writeorder.js  # order-write recovery only (fails on 2440125)
+node tests/orderverdict.js # ack-vs-acceptance + funds pre-flight (9/11 fail on 335add5)
+node tests/algo.js        # algo engine: candles, news key, lots (13/16 fail on ed14db1)
+```
+
+---
+
+# Order placement: "Network/CORS error — may already have reached Upstox" (2026-11-04)
+
+Reported: *"when i place order network/cors error may request may already reached upstox check the order book"*.
+
+## Root cause
+
+Order place / modify / cancel were the only calls in the app pointed at
+`https://api-hft.upstox.com` (Upstox's low-latency order host). That host sits
+behind a CDN/WAF and, from a browser, can answer **without CORS headers** or with
+a WAF block page. `fetch()` then rejects with `TypeError: Failed to fetch` and the
+app reported it as `Network/CORS error: … the request may already have reached
+Upstox. Check the Order Book` — an *advisory*, not an answer, so the user cannot
+tell whether they hold a position.
+
+Everything else in the app (profile, funds, order book, quotes, GTT list) talks to
+`api.upstox.com` and works from the same page, so the block is specific to the
+HFT host. Verified live: `GET https://api.upstox.com/v3/order/place` returns the
+API's own `UDAPI100050` error (route exists), not a 404 — the v3 order routes are
+served on both hosts.
+
+## Fix
+
+1. **Known-good host first.** `ORDER_PLACE` / `ORDER_MODIFY` / `ORDER_CANCEL` now
+   default to `api.upstox.com` (the host the page already reaches), with
+   `api-hft.upstox.com` kept as `altBase`.
+2. **Stop guessing — reconcile.** New `reconcileOrderBook()` / `reconcileGttList()`
+   re-read the book and match the write on tag/token/side/qty/type within a
+   3-minute window. `orderWrite()` then decides:
+   - **found** → the write landed: report it, never re-send (no duplicate order);
+   - **none** (twice, 1.2 s apart) → provably absent, so exactly one retry on the
+     fallback host;
+   - **unknown** (book unreadable) → never re-send, say it is unconfirmed;
+   - **offline** → never left the device: marked "safe to retry", no book read.
+   Cancels invert the rule: the good outcome is *the row is no longer open*.
+3. **Every write path uses it**: `plO` (place), `sqO` (position exit),
+   `canO` (cancel), `crG` (GTT create), `dlG` (GTT cancel).
+4. **Honest copy.** The toast now says one of: "Order WAS placed … verified in the
+   order book. Do NOT place it again.", "Order was NOT placed — nothing for it in
+   the order book. Safe to retry.", "Order unconfirmed — … check Orders", or
+   "You are offline … never left this device".
+5. **Transport errors are typed** (`transportError`): `kind` = `offline` |
+   `timeout` | `blocked`, plus `mayHaveReached`, shared by `rawUpstoxFetch` and
+   `apiHist` so both feeds classify a lost reply identically.
+
+## Also fixed while tracing it
+
+- `marketPhase()` took its session minutes from `istClock()` but decided the MCX
+  DST window from `new Date()` — two time sources for one answer, which is also
+  why the clock suite flipped once the US DST switch passed. `marketPhase` and
+  `marketHoursOpen` now derive both from one instant.
+
+## Proof — `tests/writeorder.js` (17 asserts)
+
+Boots the real page, makes `api.upstox.com` reject the place call with
+`TypeError: Failed to fetch`, and simulates the order book:
+
+| Scenario | Expected |
+|---|---|
+| reply lost, order present in book | 1 POST total — no duplicate, "WAS placed … verified in the order book", fallback host never touched |
+| reply lost, book shows nothing | 2 POSTs — `api.upstox.com` then `api-hft.upstox.com`, book read twice, "via backup order host" |
+| reply lost, book unreadable | 1 POST — never re-sends, "unconfirmed … check Orders" |
+| offline | 1 POST — "never left this device", safe to retry |
+| cancel + row no longer open | 1 DELETE — "confirmed in the order book" |
+| cancel + row still open | never reported as cancelled, retry on the fallback |
+| GTT create + row present | 1 POST — verified against the GTT list |
+
+Plus endpoint-host assertions (`ORDER_*` base = `api.upstox.com`, `altBase` =
+`api-hft`) and the two MCX clock assertions in `tests/deep.js`.
+
+**If orders still fail in your browser:** the app now tells you the verdict instead
+of a maybe. The two things worth checking on your side are (a) an extension or
+proxy blocking `api.upstox.com` (the request would fail for reads too), and
+(b) whether your Upstox app has the order APIs enabled for your account — a 403
+from the WAF looks identical to CORS in the browser console.
+
+### Follow-up: green "Order placed · broker 32 ms" with no order (2026-11-04)
+
+Reported right after the host fix: *"order place only showing order place 32ms in green, but no any data received, because my balance is 00"*.
+
+**Root cause — the reply was never a verdict.** `POST /v3/order/place` answers
+`{status:'success', data:{order_ids:[…]}, metadata:{latency:32}}` the moment the
+order reaches the OMS. Acceptance or rejection happens *after* that: with a ₹0
+balance the broker rejects the order a few hundred milliseconds later, so the
+book holds a `rejected` row with `status_message: "Insufficient funds…"` while
+the app had already painted a green success toast. Two things made it worse:
+
+- the Orders page defaults to the **Open** tab, and a rejected order lives in
+  the **done** book — so the page looked empty precisely where the user looked;
+- nothing compared the ticket's own margin estimate with the balance before
+  sending.
+
+**Fix**
+
+| What | Behaviour |
+|---|---|
+| Place reply | reported as *"Order sent … — confirming with the broker…"* (info), never as success |
+| Verdict watch | `watchOrderOutcome()` re-reads the order book (0.9 s, then 2.1 s) and matches by order id, falling back to token/side/qty/type within 3 minutes |
+| Rejected | red toast **"Order REJECTED by the broker: \<status_message\> (order id)"**, and the Orders page switches to the **All** tab so the row is actually visible |
+| Accepted | green **"Order accepted — open · \<id\>"** |
+| Never appears | amber **"Order sent but not visible in the order book yet — refresh Orders"** |
+| Funds pre-flight | `estMargin` now stores its numbers in `$.marginLast`; `plO` compares required margin vs available for BUY tickets and asks *"Not enough funds: this order needs about ₹X of margin and ₹Y is available — short by ₹Z … Place anyway?"* — declining sends nothing |
+| Position exits | same verdict watch (`reportOrderOutcome(..., {label:'Exit order'})`) |
+| Tab helper | `setOrdersTab()` keeps the tab highlighting honest (the old `soT()` needed the clicked element) |
+
+**Proof — `tests/orderverdict.js` (11 asserts, 9 of them fail on the previous build):**
+acknowledgement is not a success → rejection with the broker's reason → tab
+pulled to All → acceptance reported as such → "never appears" called out →
+pre-flight warns with the exact shortfall → declining sends zero requests →
+funded ticket is not interrupted → the estimate really feeds the pre-flight.
+
+Suite total now **13 suites / 301 assertions, all green**.
+
+### Chart timeframe: duplicate entry + 5m default (2026-11-05)
+
+Reported: *"chart time frame is repeated, and make default time frame is 5m"*.
+
+Two separate defects:
+
+1. **The timeframe menu listed the same interval twice.** `TFS` contained both
+   `{id:'minutes/60', lb:'60m'}` and `{id:'hours/1', lb:'1H'}` — identical 60-minute
+   candles, so the menu showed "60m" and "1H" side by side and each got its own
+   REST/cache key for the same bars.
+2. **The chart opened on Daily** (`$.cTF = 'days/1'`), so every session began by
+   switching to minutes.
+
+Fixes:
+
+- `TFS` now holds one entry per interval (1m, 3m, 5m, 10m, 15m, 30m, 1H, 2H, 3H,
+   **4H**, D, W, M). `3H` was added because Upstox v3 accepts hours 1–5 and it was
+  the only gap in the ladder. `60m` is expressed as `1H` (minutes 1–300 still
+  valid upstream).
+- `buildTF()` collapses anything that resolves to the same number of minutes
+  (`TF_MINUTES`), so a future edit cannot re-introduce a duplicate option, and it
+  re-selects `DEFAULT_TF` if the current id disappears from the list.
+- `DEFAULT_TF = 'minutes/5'` and `$.cTF: DEFAULT_TF` — the chart now opens on 5m;
+  picking another timeframe is unchanged.
+- Removed the two hidden legacy timeframe controls (`#cTFMobile`, `#tfB`) plus
+  their sync code in `buildTF`/`pickTF`. One timeframe control exists in the DOM,
+  so no cached CSS or stray rule can make a second one appear.
+
+Proof (`tests/deep.js`, CHART block — 7 asserts, 5 of them fail on the previous build):
+
+- boots with `$.cTF === 'minutes/5'` and `#cTFSelect.value === 'minutes/5'`
+- `TFS` has no two entries with the same minute value; menu labels are unique and
+  contain `1H` but not `60m`
+- exactly one of `#cTFSelect` / `#cTFMobile` / `#tfB` exists
+- the ladder covers 1m…4H, D, W, M
+- `pickTF()` drives both state and the select, and ignores an unknown id
+- end-to-end: with a symbol selected, the candle request is
+  `/historical-candle/<key>/minutes/5/<to>/<from>` and the two returned bars land
+  in `$.cd` with the meta bar counting them (nothing requests `minutes/60`)
+
+### Algo page: stale intraday signal, derivative news key, fractional F&O lots (2026-11-05)
+
+Reported: *"find bugs in algo"*. Six defects, two of them material:
+
+| # | Sev | Where | Problem | Fix |
+|---|-----|-------|---------|-----|
+| 1 | **High** | `runA` | Only the **historical** candle endpoint was read. That feed stops at the previous session, so on 5m/15m/1H the "latest completed candle" behind the signal, plan and backtest could be a whole trading day old while the chart already showed today's bars. | Also request `/v3/historical-candle/intraday/{unit}/{interval}` for minutes/hours/days and merge it with the same `chartMergeCandles` helper the chart uses (dedupe by timestamp, sort). The run continues if only one endpoint answers; the closed-candle filter still drops the forming bar. The merge reuses `chartParseCandles`, so a malformed candle (missing OHLC) is now dropped instead of entering the indicator math as 0.00. |
+| 2 | **High** | `runA`, `algoBacktest` | Plan and simulated fills were **raw units**. A 250-lot future printed "547 units" in Risk-sized units and the backtest booked those fills — quantities no broker accepts. | `lotStep = max(1, round(minimumLot\|\|lot\|\|1))`; plan qty and every backtest fill are floored to whole lots (`settings.lot`). When the risk budget cannot fund one lot, the card says "under one lot (N units)" instead of a phantom number. |
+| 3 | Med | `runA` | News was fetched with the **selected** key. An F&O contract has no tagged headlines, so every derivative analysis showed "0 articles / +0 bias" and the divergence banner could never fire, even though the underlying was in the news. | `newsKey = underlyingKey \|\| key` for both the request and the response lookup. |
+| 4 | Low-Med | `runA` | The divergence banner compared the score with a **hard-coded ±25** while Mean Reversion and Volume Breakout gate at 30, so it warned about a "trap" on scores that are not signals at all. | `algoIsDivergent(score, bias, threshold)` uses the strategy's own `meta.threshold`. |
+| 5 | Low | `runA` hero | The candle stamp printed only the date (`Candle 05 Nov 26`), so a 5m run could not tell which intraday bar it used — and hid defect 1. | `algoCandleStamp()` appends the IST `HH:MM` for minutes/hours; days/weeks keep the date-only stamp. |
+| 6 | Low | `algoValue` | `Number(null) === 0`, so a missing indicator rendered **"0.00"** instead of "—" (the class of bug the earlier EMA/regime null guards target). | `null`/`''` → "—"; `0` still prints `0.00`. |
+
+Proof — `tests/algo.js` (16 asserts, 13 of them fail on `ed14db1`):
+intraday endpoint requested and its closed bar becomes the signal bar (the
+forming bar stays out); hero stamp carries the IST time; news requested with
+`NSE_INDEX|Nifty 50` and the headline reaches the bias card; an F&O plan qty is
+a multiple of 250 and every backtest fill is too; a `lot:1` book keeps the raw
+integer fills the engine always produced; `algoIsDivergent(27,-30,30)` is false
+while `(27,-30,25)` is true; `algoValue(null) === '—'`; day stamp vs intraday
+stamp.
+
+Examined and left alone: the strength ring on a WAIT (it is `|score|`-derived by
+design), `bars` "unbounded" (the control is a 250/500/750/1000 select), and the
+technical-dashboard null comparisons (the EMA-200 card is already guarded and
+the 100-bar minimum keeps EMA-20/50, RSI and ADX warm — only `algoValue` could
+leak a null, fixed above). Note that an F&O backtest on a small model capital
+now correctly produces **zero** trades when one lot cannot be funded; that is
+the honest result, not a regression.
