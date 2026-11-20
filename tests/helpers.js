@@ -12,7 +12,17 @@ const { JSDOM } = require('jsdom');
 
 const INDEX = path.join(__dirname, '..', 'index.html');
 
-function boot({ tokens = {}, routes = [], settle = 1000 } = {}) {
+/* Order-write suites are clock-sensitive: plO()/exit paths refuse to send
+ * during the broker's 00:00–05:30 IST blackout (UDAPI100074) and switch to
+ * AMO outside the session. Run the suite at 00:05 IST and every placement
+ * assertion fails for a reason that has nothing to do with the code.
+ * `clock` pins istClock() to a fixed in-window instant so results are
+ * reproducible at any hour. Pass `clock:null` to keep the real clock.
+ *   clock: '2026-11-20T10:30:00+05:30'  (10:30 IST, order API open, NSE live)
+ */
+const DEFAULT_TEST_CLOCK = '2026-11-20T10:30:00+05:30';
+
+function boot({ tokens = {}, routes = [], settle = 1000, clock = DEFAULT_TEST_CLOCK } = {}) {
   const calls = [];
   const dom = new JSDOM(fs.readFileSync(INDEX, 'utf8'), {
     runScripts: 'dangerously',
@@ -43,7 +53,26 @@ function boot({ tokens = {}, routes = [], settle = 1000 } = {}) {
       };
     }
   });
-  return new Promise(res => setTimeout(() => res({ w: dom.window, calls }), settle));
+  return new Promise(res => setTimeout(() => {
+    if (clock) {
+      const pinned = new Date(clock);
+      try {
+        /* Delegate to the app's own istClock so its IST shift is preserved:
+           pinning a raw Date would shift the readout into UTC. istClock is a
+           reassignable function declaration, and placeApiOpen()/marketPhase()
+           call it through the closure, so this controls every gate at once. */
+        dom.window.eval(
+          `(function(){var __ist=istClock,__at=${pinned.getTime()};` +
+          `istClock=function(){return __ist(new Date(__at));};` +
+          `try{window.istClock=istClock;}catch(e){}` +
+          `try{window.placeApiOpen=placeApiOpen;}catch(e){}})()`
+        );
+      } catch (e) {
+        console.log('[helpers] clock pin failed:', e.message);
+      }
+    }
+    res({ w: dom.window, calls });
+  }, settle));
 }
 
 const okpush = (R) => (n, c) => R.push([n, c === true ? 'ok' : JSON.stringify(c).slice(0, 160)]);
@@ -54,4 +83,4 @@ function report(suite, R) {
   return fail;
 }
 
-module.exports = { boot, okpush, report, INDEX };
+module.exports = { boot, okpush, report, INDEX, DEFAULT_TEST_CLOCK };
